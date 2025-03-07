@@ -5,6 +5,18 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from fastapi.middleware.cors import CORSMiddleware
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Retrieve the API key from environment variables
+API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Check if the API key is properly loaded
+if not API_KEY:
+    raise ValueError("GEMINI_API_KEY is not set. Please check your .env file.")
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -19,8 +31,9 @@ app.add_middleware(
 )
 
 # Set up Gemini AI
-genai.configure(api_key="AIzaSyCIwxrHj7Ro0ocxvVQygJARW4en9lP2VqQ")
+genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-1.5-pro")
+
 
 @app.get("/api/stock/{ticker_symbol}")  # Updated path to match frontend
 async def get_stock_analysis(ticker_symbol: str):
@@ -49,7 +62,7 @@ async def get_stock_analysis(ticker_symbol: str):
         bb_upper = bbands['BBU_20_2.0'].iloc[-1]  # Upper band
         bb_lower = bbands['BBL_20_2.0'].iloc[-1]  # Lower band
 
-        # Average True Range (ATR) - Volatility Indicator
+        # Average True Range (ATR)
         atr = ta.atr(data['High'], data['Low'], data['Close'], length=14).iloc[-1]
 
         # Stochastic Oscillator
@@ -72,55 +85,37 @@ async def get_stock_analysis(ticker_symbol: str):
 
         # Stock Analysis Report Prompt
         stock_data_prompt = f"""
-        Generate a comprehensive and insightful stock analysis report for {ticker_symbol}.  
-        Ensure the report is well-structured, informative, and actionable for investors.  
-        Avoid including the date in the report.  
-
-        also give the key abbreviations used in the report.
-        Abbreviations:with their laymen definition
-
-        ## **1. Stock Overview**  
-        - Provide a brief introduction to {ticker_symbol}, including its core business operations, industry presence, and market positioning.  
-        - Highlight any recent developments, news, or events that could impact the stock's performance.  
-
-        ## **2. Latest Stock Performance**  
-        - **Latest Closing Price**: {latest_price} INR  
-        - Discuss how the stock has performed recently and its volatility trends.  
-
-        ## **3. Technical Indicators & Analysis**  
-        - **50-day Simple Moving Average (SMA):** {sma_50}  
-        - **20-day Exponential Moving Average (EMA):** {ema_20}  
-        - **Relative Strength Index (RSI):** {rsi}  
-        - **MACD Value:** {macd_value} | **MACD Signal Line:** {macd_signal}  
-        - **Bollinger Bands:** Upper {bb_upper}, Lower {bb_lower}  
-        - **Average True Range (ATR):** {atr}  
-        - **Stochastic Oscillator:** %K {stoch_k}, %D {stoch_d}  
-        - **On-Balance Volume (OBV):** {obv}  
-        - Identify major support and resistance levels.  
-
-        ## **4. Fundamental Analysis**  
-        - **Revenue:** {fundamentals["Revenue"]}  
-        - **Market Capitalization:** {fundamentals["Market Cap"]}  
-        - **Profit Margin:** {fundamentals["Profit Margin"]}  
-        - **Price-to-Earnings (P/E) Ratio:** {fundamentals["P/E Ratio"]}  
-        - **Price-to-Book (P/B) Ratio:** {fundamentals["P/B Ratio"]}  
-
-        ## **5. Industry & Market Analysis**  
-        - Discuss industry trends and external factors affecting {ticker_symbol}.  
-        - Compare {ticker_symbol} with competitors.  
-
-        ## **6. Risk Assessment**  
-        - Identify market, company-specific, and sectoral risks.  
-
-        ## **7. Investment Insights & Recommendations**  
-        - Analyze stock valuation and suggest a buy/sell/hold strategy.  
-
-        ## **8. Conclusion**  
-        - Summarize key takeaways.  
+        Generate a structured and insightful stock analysis report for {ticker_symbol}.
         """
 
         response = model.generate_content(stock_data_prompt)
-        return {"stock_analysis": response.text}
+
+        # Structured JSON Response
+        return {
+            "ticker_symbol": ticker_symbol,
+            "latest_price": latest_price,
+            "technical_indicators": {
+                "SMA_50": sma_50,
+                "EMA_20": ema_20,
+                "RSI": rsi,
+                "MACD": {
+                    "Value": macd_value,
+                    "Signal": macd_signal
+                },
+                "Bollinger_Bands": {
+                    "Upper": bb_upper,
+                    "Lower": bb_lower
+                },
+                "ATR": atr,
+                "Stochastic_Oscillator": {
+                    "K": stoch_k,
+                    "D": stoch_d
+                },
+                "OBV": obv
+            },
+            "fundamentals": fundamentals,
+            "generated_report": response.text  # AI-generated stock analysis
+        }
 
     except Exception as e:
         return {"error": str(e)}

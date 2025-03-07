@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client"
 
@@ -6,10 +7,19 @@ import { ArrowLeft, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
-import ReactMarkdown from "react-markdown"
+import ReactMarkdown, { Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { atomDark } from "react-syntax-highlighter/dist/cjs/styles/prism"
+
+// Add this interface
+interface CodeComponentProps {
+  node?: any
+  inline?: boolean
+  className?: string
+  children?: React.ReactNode
+  [key: string]: any
+}
 
 export default function ResultsPage() {
   const searchParams = useSearchParams()
@@ -57,7 +67,7 @@ export default function ResultsPage() {
       <header className="w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <TrendingUp className="h-6 w-6 text-primary" />
+            <TrendingUp className="h-6 w-6 text-black" />
             <span className="text-xl font-bold">StockAssist</span>
           </Link>
         </div>
@@ -92,7 +102,7 @@ export default function ResultsPage() {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    code({ node, inline, className, children, ...props }) {
+                    code: ({ node, inline, className, children, ...props }: CodeComponentProps) => {
                       const match = /language-(\w+)/.exec(className || "")
                       return !inline && match ? (
                         <SyntaxHighlighter style={atomDark} language={match[1]} PreTag="div" {...props}>
@@ -129,7 +139,7 @@ export default function ResultsPage() {
       <footer className="border-t py-6">
         <div className="container text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} StockAssist. All rights reserved.</p>
-          <p className="mt-1 text-xs">
+          <p className="mt-1 text-xl font-bold  text-red-600">
             The information provided is for general informational purposes only and should not be considered as
             investment advice.
           </p>
@@ -138,4 +148,3 @@ export default function ResultsPage() {
     </div>
   )
 }
-
