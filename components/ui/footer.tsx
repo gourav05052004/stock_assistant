@@ -7,8 +7,8 @@ export function Footer() {
         <div className="container flex flex-col gap-6 py-8 md:py-12">
           <div className="flex flex-col gap-6 lg:flex-row lg:gap-12">
             <div className="flex flex-col gap-3 lg:max-w-sm">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-6 w-6 text-primary text-black" />
+              <div className="flex items-center gap-2 ">
+                <TrendingUp className="h-6 w-6 text-black" />
                 <span className="text-xl font-bold">StockAssist</span>
               </div>
               <p className="text-sm text-muted-foreground">
