@@ -1,14 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { ArrowLeft, TrendingUp } from "lucide-react"
-import Link from "next/link"
-import { useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // Define the API response type
 interface StockAnalysisResponse {
@@ -17,49 +15,49 @@ interface StockAnalysisResponse {
 }
 
 export default function ResultsPage() {
-  const searchParams = useSearchParams()
-  const symbol = searchParams.get("symbol")
-  const [loading, setLoading] = useState(true)
-  const [stockData, setStockData] = useState("")
-  const [error, setError] = useState("")
+  const searchParams = useSearchParams();
+  const symbol = searchParams.get("symbol");
+  const [loading, setLoading] = useState(true);
+  const [stockData, setStockData] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!symbol) {
-      setError("No stock symbol provided")
-      setLoading(false)
-      return
+      setError("No stock symbol provided");
+      setLoading(false);
+      return;
     }
 
     async function fetchStockData() {
       try {
-        setLoading(true)
-        const response = await fetch(`/api/stock/${symbol}`)
+        setLoading(true);
+        const response = await fetch(`/api/stock/${symbol}`);
 
         if (!response.ok) {
-          throw new Error(`Error fetching stock data: ${response.statusText}`)
+          throw new Error(`Error fetching stock data: ${response.statusText}`);
         }
 
-        const data: StockAnalysisResponse = await response.json()
+        const data: StockAnalysisResponse = await response.json();
 
         if (data.error) {
-          throw new Error(data.error)
+          throw new Error(data.error);
         }
 
         if (!data.stock_analysis) {
-          throw new Error("No analysis data received")
+          throw new Error("No analysis data received");
         }
 
-        setStockData(data.stock_analysis)
+        setStockData(data.stock_analysis);
       } catch (err) {
-        console.error("Error fetching stock data:", err)
-        setError(err instanceof Error ? err.message : "Failed to fetch stock data")
+        console.error("Error fetching stock data:", err);
+        setError(err instanceof Error ? err.message : "Failed to fetch stock data");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 
-    fetchStockData()
-  }, [symbol])
+    fetchStockData();
+  }, [symbol]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -82,6 +80,15 @@ export default function ResultsPage() {
             </Button>
           </div>
 
+          {/* Warning Message - Now placed above the analysis */}
+          <div className="bg-yellow-50 border-l-4 border-yellow-500 text-red-500 p-4 mb-6 rounded-lg text-xl font-semibold">
+            <p className="font-bold">Disclaimer:-</p>
+            <p>
+              The information provided is for general informational purposes only and should not be considered as
+              an investment advice.
+            </p>
+          </div>
+
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -98,7 +105,7 @@ export default function ResultsPage() {
           ) : (
             <div className="bg-white rounded-lg shadow-lg p-6 md:p-8">
               <div className="prose prose-lg max-w-none">
-                <ReactMarkdown 
+                <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     table: ({ children }) => (
@@ -112,13 +119,9 @@ export default function ResultsPage() {
                       </th>
                     ),
                     td: ({ children }) => (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {children}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{children}</td>
                     ),
-                    tr: ({ children }) => (
-                      <tr className="bg-white even:bg-gray-50">{children}</tr>
-                    )
+                    tr: ({ children }) => <tr className="bg-white even:bg-gray-50">{children}</tr>,
                   }}
                 >
                   {stockData}
@@ -131,12 +134,8 @@ export default function ResultsPage() {
       <footer className="border-t py-6">
         <div className="container text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} StockAssist. All rights reserved.</p>
-          <p className="mt-1 text-xl font-bold  text-red-600">
-            The information provided is for general informational purposes only and should not be considered as
-            investment advice.
-          </p>
         </div>
       </footer>
     </div>
-  )
+  );
 }

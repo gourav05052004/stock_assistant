@@ -26,14 +26,10 @@ export default function Home() {
             <TrendingUp className="h-6 w-6 text-black" />
             <span className="text-xl font-bold">StockAssist</span>
           </Link>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm">
-              Sign In
-            </Button>
-            <Button size="sm" className="bg-black text-white hover:bg-gray-900">Get Started</Button>
-          </div>
         </div>
       </header>
+      
+
       <main className="flex-1 flex items-center justify-center">
         <div className="container max-w-md mx-auto px-4">
           <div className="text-center mb-8">
