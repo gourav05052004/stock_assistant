@@ -15,7 +15,7 @@ export async function GET(
     );
   }
 
-  const backendUrl = 'http://localhost:8000/stock-analysis';
+  const backendUrl = 'http://localhost:8000/api/stock';
 
   try {
     console.log(`Fetching from: ${backendUrl}/${ticker}`);

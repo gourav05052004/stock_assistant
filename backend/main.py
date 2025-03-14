@@ -2,78 +2,74 @@ from fastapi import FastAPI
 import google.generativeai as genai
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import pandas_ta as ta
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Retrieve the API key from environment variables
+# Retrieve Gemini API Key
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Check if the API key is properly loaded
+# Validate API Key
 if not API_KEY:
-    raise ValueError("GEMINI_API_KEY is not set. Please check your .env file.")
+    raise ValueError("GEMINI_API_KEY is missing. Please set it in your .env file.")
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Add CORS middleware
+# Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Your Next.js frontend URL
+    allow_origins=["http://localhost:3000"],  # Adjust if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Set up Gemini AI
+# Configure Gemini AI
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-1.5-pro")
 
 
-@app.get("/api/stock/{ticker_symbol}")  # Updated path to match frontend
+@app.get("/api/stock/{ticker_symbol}")
 async def get_stock_analysis(ticker_symbol: str):
     try:
         # Fetch stock data
         ticker = yf.Ticker(ticker_symbol)
-        latest_price = ticker.history(period="1d").iloc[-1].Close
+        history = ticker.history(period="1y")
 
-        # Historical Data for Technical Indicators
-        data = ticker.history(period='1y')
+        # Ensure data is available
+        if history.empty:
+            return {"error": f"No stock data found for {ticker_symbol}"}
 
-        # Moving Averages
-        sma_50 = ta.sma(data['Close'], length=50).iloc[-1]
-        ema_20 = ta.ema(data['Close'], length=20).iloc[-1]
+        latest_price = history["Close"].iloc[-1]
 
-        # RSI Calculation
-        rsi = ta.rsi(data['Close'], length=14).iloc[-1]
+        # Calculate Technical Indicators
+        sma_50 = ta.sma(history["Close"], length=50).iloc[-1]
+        ema_20 = ta.ema(history["Close"], length=20).iloc[-1]
+        rsi = ta.rsi(history["Close"], length=14).iloc[-1]
+        macd = ta.macd(history["Close"])
+        bbands = ta.bbands(history["Close"], length=20)
+        atr = ta.atr(history["High"], history["Low"], history["Close"], length=14).iloc[-1]
+        stoch = ta.stoch(history["High"], history["Low"], history["Close"], k=14, d=3)
+        obv = ta.obv(history["Close"], history["Volume"]).iloc[-1]
 
-        # MACD Calculation
-        macd_df = ta.macd(data['Close'])
-        macd_value = macd_df['MACD_12_26_9'].iloc[-1]
-        macd_signal = macd_df['MACDs_12_26_9'].iloc[-1]
+        # Extract MACD values
+        macd_value = macd["MACD_12_26_9"].iloc[-1]
+        macd_signal = macd["MACDs_12_26_9"].iloc[-1]
 
-        # Bollinger Bands (BB)
-        bbands = ta.bbands(data['Close'], length=20)
-        bb_upper = bbands['BBU_20_2.0'].iloc[-1]  # Upper band
-        bb_lower = bbands['BBL_20_2.0'].iloc[-1]  # Lower band
+        # Extract Bollinger Bands values
+        bb_upper = bbands["BBU_20_2.0"].iloc[-1]
+        bb_lower = bbands["BBL_20_2.0"].iloc[-1]
 
-        # Average True Range (ATR)
-        atr = ta.atr(data['High'], data['Low'], data['Close'], length=14).iloc[-1]
+        # Extract Stochastic Oscillator values
+        stoch_k = stoch["STOCHk_14_3_3"].iloc[-1]
+        stoch_d = stoch["STOCHd_14_3_3"].iloc[-1]
 
-        # Stochastic Oscillator
-        stoch = ta.stoch(data['High'], data['Low'], data['Close'], k=14, d=3)
-        stoch_k = stoch['STOCHk_14_3_3'].iloc[-1]
-        stoch_d = stoch['STOCHd_14_3_3'].iloc[-1]
-
-        # On-Balance Volume (OBV)
-        obv = ta.obv(data['Close'], data['Volume']).iloc[-1]
-
-        # Fundamental Data
+        # Fetch fundamental data
         info = ticker.info
         fundamentals = {
             "Revenue": info.get("totalRevenue", "N/A"),
@@ -83,39 +79,28 @@ async def get_stock_analysis(ticker_symbol: str):
             "P/B Ratio": info.get("priceToBook", "N/A"),
         }
 
-        # Stock Analysis Report Prompt
+        # Generate stock analysis report
         stock_data_prompt = f"""
-        Generate a structured and insightful stock analysis report for {ticker_symbol}.
+        Generate a stock analysis report for {ticker_symbol}.
+        - Latest Price: {latest_price}
+        - SMA_50: {sma_50}, EMA_20: {ema_20}
+        - RSI: {rsi}
+        - MACD: Value ({macd_value}), Signal ({macd_signal})
+        - Bollinger Bands: Upper ({bb_upper}), Lower ({bb_lower})
+        - ATR: {atr}
+        - Stochastic Oscillator: K ({stoch_k}), D ({stoch_d})
+        - OBV: {obv}
+        - Fundamental Data: {fundamentals}
+        Provide insights based on these indicators.
         """
 
         response = model.generate_content(stock_data_prompt)
 
-        # Structured JSON Response
-        return {
-            "ticker_symbol": ticker_symbol,
-            "latest_price": latest_price,
-            "technical_indicators": {
-                "SMA_50": sma_50,
-                "EMA_20": ema_20,
-                "RSI": rsi,
-                "MACD": {
-                    "Value": macd_value,
-                    "Signal": macd_signal
-                },
-                "Bollinger_Bands": {
-                    "Upper": bb_upper,
-                    "Lower": bb_lower
-                },
-                "ATR": atr,
-                "Stochastic_Oscillator": {
-                    "K": stoch_k,
-                    "D": stoch_d
-                },
-                "OBV": obv
-            },
-            "fundamentals": fundamentals,
-            "generated_report": response.text  # AI-generated stock analysis
-        }
+        # Ensure AI generated a valid response
+        if not response.text:
+            return {"error": "AI failed to generate a stock report."}
+
+        return {"stock_analysis": response.text}
 
     except Exception as e:
         return {"error": str(e)}
