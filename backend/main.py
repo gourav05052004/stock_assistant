@@ -81,9 +81,10 @@ async def get_stock_analysis(ticker_symbol: str):
 
         # Generate stock analysis report
         stock_data_prompt = f"""
-        Generate a stock analysis report for {ticker_symbol}.
+        Generate a detailed and structured stock analysis report for {ticker_symbol}.
+        Consider the following indicators:
         - Latest Price: {latest_price}
-        - SMA_50: {sma_50}, EMA_20: {ema_20}
+        - Moving Averages: SMA_50 ({sma_50}), EMA_20 ({ema_20})
         - RSI: {rsi}
         - MACD: Value ({macd_value}), Signal ({macd_signal})
         - Bollinger Bands: Upper ({bb_upper}), Lower ({bb_lower})
@@ -91,7 +92,8 @@ async def get_stock_analysis(ticker_symbol: str):
         - Stochastic Oscillator: K ({stoch_k}), D ({stoch_d})
         - OBV: {obv}
         - Fundamental Data: {fundamentals}
-        Provide insights based on these indicators.
+        Provide an expert analysis based on these indicators.
+        Do not include any specific dates in the report.
         """
 
         response = model.generate_content(stock_data_prompt)
