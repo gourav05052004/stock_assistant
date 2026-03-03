@@ -14,6 +14,30 @@ interface StockAnalysisResponse {
   error?: string;
 }
 
+const inFlightStockRequests = new Map<string, Promise<StockAnalysisResponse>>();
+
+async function fetchStockAnalysis(symbol: string): Promise<StockAnalysisResponse> {
+  const existingRequest = inFlightStockRequests.get(symbol);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = fetch(`/api/stock/${symbol}`)
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Error fetching stock data: ${response.statusText}`);
+      }
+
+      return (await response.json()) as StockAnalysisResponse;
+    })
+    .finally(() => {
+      inFlightStockRequests.delete(symbol);
+    });
+
+  inFlightStockRequests.set(symbol, request);
+  return request;
+}
+
 export default function ResultsPage() {
   const searchParams = useSearchParams();
   const symbol = searchParams.get("symbol");
@@ -31,13 +55,7 @@ export default function ResultsPage() {
     async function fetchStockData() {
       try {
         setLoading(true);
-        const response = await fetch(`/api/stock/${symbol}`);
-
-        if (!response.ok) {
-          throw new Error(`Error fetching stock data: ${response.statusText}`);
-        }
-
-        const data: StockAnalysisResponse = await response.json();
+        const data = await fetchStockAnalysis(symbol);
 
         if (data.error) {
           throw new Error(data.error);
