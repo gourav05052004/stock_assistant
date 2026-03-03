@@ -16,11 +16,16 @@ export async function GET(
   }
 
   const backendUrl = 'http://localhost:8000/api/stock';
+  const requestedRange = request.nextUrl.searchParams.get('range');
 
   try {
-    console.log(`Fetching from: ${backendUrl}/${ticker}`);
+    const targetUrl = requestedRange
+      ? `${backendUrl}/${ticker}?range=${encodeURIComponent(requestedRange)}`
+      : `${backendUrl}/${ticker}`;
 
-    const response = await fetch(`${backendUrl}/${ticker}`, {
+    console.log(`Fetching from: ${targetUrl}`);
+
+    const response = await fetch(targetUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
