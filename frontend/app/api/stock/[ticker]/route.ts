@@ -15,7 +15,8 @@ export async function GET(
     );
   }
 
-  const backendUrl = 'http://127.0.0.1:8000/api/stock';
+  const backendBaseUrl = (process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
+  const backendUrl = `${backendBaseUrl}/api/stock`;
   const requestedRange = request.nextUrl.searchParams.get('range');
 
   try {
@@ -49,7 +50,7 @@ export async function GET(
     console.error('API Route Error:', error instanceof Error ? error.message : String(error));
 
     return NextResponse.json(
-      { error: 'Unable to reach backend service. Start backend at 127.0.0.1:8000 and try again.' },
+      { error: `Unable to reach backend service at ${backendBaseUrl}.` },
       { status: 503 }
     );
   }
