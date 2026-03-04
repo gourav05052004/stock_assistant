@@ -777,13 +777,9 @@ def build_chart_data(history: pd.DataFrame) -> list[dict]:
     return results
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
-    return {
-        "status": "ok",
-        "service": "stock-assistant-backend",
-        "timestamp_utc": datetime.now(UTC).isoformat(),
-    }
+    return {"status": "ok"}
 
 
 @app.get("/api/stock/{ticker_symbol}")
