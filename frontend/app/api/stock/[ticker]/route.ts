@@ -14,7 +14,11 @@ export async function GET(
     );
   }
 
-  const backendBaseUrl = (process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
+  const configuredBackendBaseUrl =
+    process.env.BACKEND_URL?.trim() ||
+    process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
+    'http://127.0.0.1:8000';
+  const backendBaseUrl = configuredBackendBaseUrl.replace(/\/$/, '');
   const backendUrl = `${backendBaseUrl}/api/stock`;
   const requestedRange = request.nextUrl.searchParams.get('range');
 

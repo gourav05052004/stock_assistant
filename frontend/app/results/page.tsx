@@ -42,6 +42,7 @@ import {
 
 // Define the API response type
 interface StockAnalysisResponse {
+  chartData?: ChartPoint[];
   analysis_text?: string;
   stock_analysis?: string;
   news?: NewsArticle[];
@@ -236,6 +237,9 @@ export default function ResultsPage() {
 
         setStockData(analysisText);
         setAnalysisPayload(data);
+        if (Array.isArray(data.chartData) && data.chartData.length > 0) {
+          setChartData(data.chartData);
+        }
       } catch (err) {
         console.error("Error fetching stock data:", err);
         setError(err instanceof Error ? err.message : "Failed to fetch stock data");
@@ -250,6 +254,7 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!symbol) return;
+    if (activeTimeframe === "1M" && chartData.length > 0) return;
 
     const controller = new AbortController();
 
@@ -283,7 +288,7 @@ export default function ResultsPage() {
     return () => {
       controller.abort();
     };
-  }, [symbol, activeTimeframe]);
+  }, [symbol, activeTimeframe, chartData.length]);
 
   const normalizedReport = useMemo(() => stockData.replace(/\r/g, ""), [stockData]);
 

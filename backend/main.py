@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, Query, Request # type: ignore
 from google import genai  # type: ignore
 import yfinance as yf # type: ignore
@@ -734,6 +735,54 @@ def set_cached_value(cache_key: str, range_key: str, value):
     }
 
 
+def get_cached_value_any_range(ticker: str) -> dict[str, Any] | None:
+    prefix = f"v2_{ticker}_"
+    latest_data: dict[str, Any] | None = None
+    latest_expires: datetime | None = None
+
+    for cache_key, cache_entry in analysis_cache.items():
+        if not cache_key.startswith(prefix):
+            continue
+
+        expires_at = cache_entry.get("expires_at")
+        data = cache_entry.get("data")
+        if not isinstance(data, dict):
+            continue
+
+        if latest_expires is None or (isinstance(expires_at, datetime) and expires_at > latest_expires):
+            latest_expires = expires_at if isinstance(expires_at, datetime) else latest_expires
+            latest_data = data
+
+    return latest_data
+
+
+def is_rate_limited_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return "too many requests" in message or "rate limit" in message or "429" in message
+
+
+async def fetch_history_with_retries(ticker: yf.Ticker, period: str, interval: str | None = None, attempts: int = 3) -> pd.DataFrame:
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            history_kwargs: dict[str, Any] = {"period": period}
+            if interval:
+                history_kwargs["interval"] = interval
+            return ticker.history(**history_kwargs)
+        except Exception as history_error:
+            last_error = history_error
+            if is_rate_limited_error(history_error) and attempt < attempts:
+                await asyncio.sleep(1.2 * attempt)
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+
+    return pd.DataFrame()
+
+
 def build_chart_data(history: pd.DataFrame) -> list[dict]:
     if history.empty:
         return []
@@ -784,8 +833,8 @@ async def health_check():
 
 @app.get("/api/stock/{ticker_symbol}")
 async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = Query(default="1y")):
+    normalized_symbol = ticker_symbol.strip().upper()
     try:
-        normalized_symbol = ticker_symbol.strip().upper()
         range_key = range.lower()
 
         range_map = {
@@ -805,10 +854,16 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
         ticker = None
         history = pd.DataFrame()
         resolved_symbol = normalized_symbol
+        last_history_error: Exception | None = None
 
         for candidate in ticker_candidates:
             candidate_ticker = yf.Ticker(candidate)
-            candidate_history = candidate_ticker.history(period="1y")
+            try:
+                candidate_history = await fetch_history_with_retries(candidate_ticker, period="1y")
+            except Exception as history_error:
+                last_history_error = history_error
+                continue
+
             if not candidate_history.empty:
                 ticker = candidate_ticker
                 history = candidate_history
@@ -817,13 +872,34 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
 
         # Ensure data is available
         if history.empty:
+            cached_fallback = get_cached_value_any_range(normalized_symbol)
+            if cached_fallback:
+                cached_payload = dict(cached_fallback)
+                cached_payload.setdefault("chartData", [])
+                cached_payload["warning"] = "Using cached analysis because market data provider is temporarily rate-limiting requests."
+                return cached_payload
+
+            if last_history_error and is_rate_limited_error(last_history_error):
+                return {
+                    "error": "Market data provider is rate-limiting requests right now. Please try again in a minute.",
+                    "chartData": [],
+                }
+
             return {
                 "error": f"No stock data found for {normalized_symbol}. Try symbol with exchange suffix like .NS or .BO.",
                 "chartData": [],
             }
 
-        chart_history = ticker.history(period=selected_range["period"], interval=selected_range["interval"])
-        chart_data = build_chart_data(chart_history)
+        chart_data: list[dict[str, Any]] = []
+        try:
+            chart_history = await fetch_history_with_retries(
+                ticker,
+                period=selected_range["period"],
+                interval=selected_range["interval"],
+            )
+            chart_data = build_chart_data(chart_history)
+        except Exception as chart_error:
+            logger.warning("Chart data fetch failed for %s: %s", resolved_symbol, chart_error)
 
         # Fast chart-only response for timeframe chart requests
         if "range" in request.query_params:
@@ -832,6 +908,7 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
         cache_key = get_cache_key(normalized_symbol, range_key)
         cached_analysis = get_cached_value(cache_key)
         if cached_analysis:
+            cached_analysis["chartData"] = chart_data
             cached_news = cached_analysis.get("news") if isinstance(cached_analysis, dict) else None
             if not isinstance(cached_news, list) or len(cached_news) == 0:
                 news_articles = await fetch_stock_news(resolved_symbol)
@@ -1177,6 +1254,7 @@ Overall bias remains {directional_bias}. The {buy_probability}/{sell_probability
                 "analysis_text": "",
                 "analysis_sections": [],
                 "news": news_articles,
+                "chartData": chart_data,
             }
             normalized_fallback = normalize_analysis_text(fallback_report.strip())
             fallback_sections = build_analysis_sections(normalized_fallback)
@@ -1195,11 +1273,22 @@ Overall bias remains {directional_bias}. The {buy_probability}/{sell_probability
             "analysis_text": render_sections_as_text(enriched_response_sections),
             "analysis_sections": enriched_response_sections,
             "news": news_articles,
+            "chartData": chart_data,
         }
         set_cached_value(cache_key, range_key, result_payload)
         return result_payload
 
     except Exception as e:
+        cached_fallback = get_cached_value_any_range(normalized_symbol)
+        if cached_fallback:
+            cached_payload = dict(cached_fallback)
+            cached_payload.setdefault("chartData", [])
+            cached_payload["warning"] = "Using cached analysis because upstream providers are temporarily unavailable."
+            return cached_payload
+
+        if is_rate_limited_error(e):
+            return {"error": "Upstream provider is rate-limiting requests. Please try again in a minute.", "chartData": []}
+
         return {"error": str(e)}
 
 # Run the FastAPI server
