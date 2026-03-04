@@ -104,7 +104,6 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         setSymbol(item)
-                        navigateToResults(item)
                       }}
                       className="rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-sm text-slate-200 transition hover:border-blue-300/50 hover:bg-blue-500/20 hover:text-white"
                     >
