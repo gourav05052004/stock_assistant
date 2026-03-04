@@ -15,7 +15,7 @@ export async function GET(
     );
   }
 
-  const backendUrl = 'http://localhost:8000/api/stock';
+  const backendUrl = 'http://127.0.0.1:8000/api/stock';
   const requestedRange = request.nextUrl.searchParams.get('range');
 
   try {
@@ -49,8 +49,8 @@ export async function GET(
     console.error('API Route Error:', error instanceof Error ? error.message : String(error));
 
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: 'Unable to reach backend service. Start backend at 127.0.0.1:8000 and try again.' },
+      { status: 503 }
     );
   }
 }

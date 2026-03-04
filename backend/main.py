@@ -77,16 +77,36 @@ SECTION_KEY_MAP = {
 
 def normalize_section_title(raw_title: str) -> str | None:
     normalized = raw_title.strip().lower()
+    normalized = re.sub(r"[*_`]+", "", normalized)
     normalized = re.sub(r"^\d+\.\s*", "", normalized)
+    normalized = re.sub(r"^\d+\)\s*", "", normalized)
     normalized = re.sub(r"^#+\s*", "", normalized)
+    normalized = re.sub(r"[:\-–—]+$", "", normalized).strip()
+    normalized = normalized.replace(" and ", " & ")
     normalized = re.sub(r"\s+", " ", normalized)
 
     for canonical in REQUIRED_SECTION_TITLES:
-        canonical_lower = canonical.lower()
+        canonical_lower = canonical.lower().replace(" and ", " & ")
         if normalized == canonical_lower or canonical_lower in normalized:
             return canonical
 
     return None
+
+
+def extract_section_heading(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped:
+        return None
+
+    cleaned = re.sub(r"^[-*]\s+", "", stripped)
+    cleaned = re.sub(r"^\*\*(.*?)\*\*$", r"\1", cleaned)
+    cleaned = re.sub(r"^__([^_]+)__$", r"\1", cleaned)
+    cleaned = cleaned.strip(" *_`")
+    cleaned = re.sub(r"^#{1,6}\s*", "", cleaned)
+    cleaned = re.sub(r"^\d+[\.)]\s*", "", cleaned)
+    cleaned = cleaned.strip(" *_`:;-–—")
+
+    return normalize_section_title(cleaned)
 
 
 def normalize_analysis_text(raw_text: str) -> str:
@@ -98,17 +118,10 @@ def normalize_analysis_text(raw_text: str) -> str:
     current_section: str | None = None
 
     for line in lines:
-        stripped = line.strip()
-        is_number_heading = bool(re.match(r"^\d+\.\s+", stripped))
-        is_markdown_heading = bool(re.match(r"^#{1,3}\s+", stripped))
-
-        if is_number_heading or is_markdown_heading:
-            cleaned_title = re.sub(r"^\d+\.\s*", "", stripped)
-            cleaned_title = re.sub(r"^#{1,3}\s*", "", cleaned_title)
-            canonical = normalize_section_title(cleaned_title)
-            if canonical:
-                current_section = canonical
-                continue
+        canonical = extract_section_heading(line)
+        if canonical:
+            current_section = canonical
+            continue
 
         if current_section:
             sections[current_section].append(line)
@@ -207,7 +220,7 @@ def format_currency(value: Any, decimals: int = 2) -> str:
     numeric_value = to_float(value)
     if numeric_value is None:
         return "N/A"
-    return f"₹{numeric_value:.{decimals}f}"
+    return f"Rs. {numeric_value:.{decimals}f}"
 
 
 def format_currency_compact(value: Any, decimals: int = 2) -> str:
@@ -215,8 +228,8 @@ def format_currency_compact(value: Any, decimals: int = 2) -> str:
     if compact_value == "N/A":
         return compact_value
     if compact_value.startswith("-"):
-        return f"-₹{compact_value[1:]}"
-    return f"₹{compact_value}"
+        return f"-Rs. {compact_value[1:]}"
+    return f"Rs. {compact_value}"
 
 
 def format_percent(value: Any, decimals: int = 2) -> str:
@@ -377,30 +390,79 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
         allow_base_symbol_word_match = len(base_ticker) <= 5 or any(char.isdigit() for char in base_ticker)
         base_symbol_pattern = re.compile(rf"\b{re.escape(base_ticker.lower())}\b") if allow_base_symbol_word_match else None
 
+        finance_context_keywords = {
+            "stock",
+            "stocks",
+            "share",
+            "shares",
+            "market",
+            "markets",
+            "investor",
+            "investors",
+            "earnings",
+            "quarter",
+            "results",
+            "profit",
+            "revenue",
+            "dividend",
+            "valuation",
+            "bse",
+            "nse",
+            "sensex",
+            "nifty",
+            "brokerage",
+            "target price",
+            "guidance",
+        }
+
+        blocked_source_keywords = {
+            "pypi",
+            "npm",
+            "packagist",
+            "rubygems",
+            "crates.io",
+        }
+
         relevance_terms = {base_ticker.lower(), normalized_ticker.lower(), normalized_ticker.replace(".", "").lower()}
         relevance_terms.update(company_tokens)
 
         def is_relevant_article(article: dict[str, Any]) -> bool:
             title = str(article.get("title") or "")
             description = str(article.get("description") or "")
-            combined_text = f"{title} {description}".lower()
+            source = article.get("source") if isinstance(article.get("source"), dict) else {}
+            source_name = str(source.get("name") or "")
+            combined_text = f"{title} {description} {source_name}".lower()
             company_phrase = company_name_normalized.lower().strip()
 
-            if normalized_ticker.lower() in combined_text:
-                return True
+            if any(keyword in source_name.lower() for keyword in blocked_source_keywords):
+                return False
 
-            if base_symbol_pattern and base_symbol_pattern.search(combined_text):
-                return True
+            has_finance_context = any(keyword in combined_text for keyword in finance_context_keywords)
+            has_normalized_ticker = normalized_ticker.lower() in combined_text
+            has_base_symbol = bool(base_symbol_pattern and base_symbol_pattern.search(combined_text))
+            has_company_phrase = bool(company_phrase and company_phrase in combined_text)
 
-            if company_phrase and company_phrase in combined_text:
-                return True
-
-            matched_tokens = 0
+            company_token_hits = 0
             for token in company_tokens:
                 if token in combined_text:
-                    matched_tokens += 1
+                    company_token_hits += 1
 
-            if company_name_normalized and len(company_tokens) >= 2 and matched_tokens >= 2:
+            if has_company_phrase:
+                return True
+
+            if company_name_normalized and len(company_tokens) >= 2 and company_token_hits >= 2:
+                return True
+
+            if has_normalized_ticker and (has_finance_context or company_token_hits >= 1):
+                return True
+
+            if has_base_symbol:
+                # Acronym-only matches (e.g., IOC as International Olympic Committee) are noisy.
+                # Require either finance context or at least one company token to keep relevance high.
+                if has_finance_context or company_token_hits >= 1:
+                    return True
+
+            if company_token_hits >= 1 and has_finance_context:
                 return True
 
             return False
@@ -638,7 +700,7 @@ def build_fundamentals(ticker: yf.Ticker) -> dict[str, float | None]:
 
 
 def get_cache_key(ticker: str, range_key: str) -> str:
-    return f"{ticker}_{range_key}"
+    return f"v2_{ticker}_{range_key}"
 
 
 def get_cached_value(cache_key: str):
@@ -702,6 +764,15 @@ def build_chart_data(history: pd.DataFrame) -> list[dict]:
         )
 
     return results
+
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "ok",
+        "service": "stock-assistant-backend",
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+    }
 
 
 @app.get("/api/stock/{ticker_symbol}")

@@ -2,15 +2,17 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { ChevronDown, ChevronUp, Info, Search, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { FormEvent, useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 
-const popularSymbols = ["ITC", "BPCL", "EICHERMOT", "IRCTC", "ZOMATO", "GAIL", "RELIANCE"]
+const popularSymbols = ["ITC", "BPCL", "EICHERMOT", "IRCTC", "ETERNAL", "GAIL", "RELIANCE"]
 
 export default function Home() {
   const [symbol, setSymbol] = useState("")
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showDisclaimer, setShowDisclaimer] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -112,7 +114,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="max-w-2xl rounded-2xl border border-amber-300/30 bg-amber-100/90 p-4 text-slate-800 shadow-sm">
+              {/* <div className="max-w-2xl rounded-2xl border border-amber-300/30 bg-amber-100/90 p-4 text-slate-800 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setShowDisclaimer((prev) => !prev)}
@@ -130,7 +132,7 @@ export default function Home() {
                     investment advice. Always conduct your own research before making investment decisions.
                   </p>
                 )}
-              </div>
+              </div> */}
             </div>
 
             <div className="hidden lg:block">

@@ -3,7 +3,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import {
   ArrowLeft,
@@ -12,6 +11,7 @@ import {
   Download,
   Flame,
   Gauge,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Info,
   Loader2,
   ShieldAlert,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -138,16 +138,44 @@ const CHART_RANGE_MAP: Record<ChartTimeframe, string> = {
 
 const inFlightStockRequests = new Map<string, Promise<StockAnalysisResponse>>();
 
+function stripMarkdownForPdf(content: string): string {
+  return content
+    .replace(/\r/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1 ($2)")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeReportContent(content: string): string {
+  return content
+    .replace(/\[\^\d+\]/g, "")
+    .replace(/^\s*\[\^\d+\]:.*$/gm, "")
+    .replace(/\$(?=\s*\d)/g, "Rs. ")
+    .replace(/₹/g, "Rs. ")
+    .replace(/¹/g, "Rs. ")
+    .replace(/<\/?sup>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 async function fetchStockAnalysis(symbol: string): Promise<StockAnalysisResponse> {
   const existingRequest = inFlightStockRequests.get(symbol);
   if (existingRequest) {
     return existingRequest;
   }
 
-  const request = fetch(`/api/stock/${symbol}`)
+  const request = fetch(`/api/stock/${encodeURIComponent(symbol)}`)
     .then(async (response) => {
       if (!response.ok) {
-        throw new Error(`Error fetching stock data: ${response.statusText}`);
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        const message = payload?.error ?? `Error fetching stock data: ${response.statusText}`;
+        throw new Error(message);
       }
 
       return (await response.json()) as StockAnalysisResponse;
@@ -172,7 +200,6 @@ export default function ResultsPage() {
   const [chartLoading, setChartLoading] = useState(false);
   const [activeTimeframe, setActiveTimeframe] = useState<ChartTimeframe>("1M");
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
-  const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -188,6 +215,7 @@ export default function ResultsPage() {
     async function fetchStockData() {
       try {
         setLoading(true);
+        setError("");
         const data = await fetchStockAnalysis(symbol as string);
 
         if (data.error) {
@@ -266,7 +294,7 @@ export default function ResultsPage() {
     buy: analysisPayload?.scores?.buy_probability ?? 50,
     sell: analysisPayload?.scores?.sell_probability ?? 50,
   };
-  const newsArticles = analysisPayload?.news ?? [];
+  const newsArticles = useMemo(() => analysisPayload?.news ?? [], [analysisPayload?.news]);
 
   const sentiment = useMemo(() => {
     if (probability.buy > probability.sell) return "Bullish";
@@ -299,7 +327,7 @@ export default function ResultsPage() {
         .map((section, index) => ({
           key: section.key ?? `${index}-${section.title ?? "section"}`,
           title: section.title?.trim() || `Section ${index + 1}`,
-          content: section.content?.trim() || "Not enough signal clarity to provide this section.",
+          content: sanitizeReportContent(section.content ?? "") || "Not enough signal clarity to provide this section.",
         }))
         .filter((section) => section.content.length > 0);
     }
@@ -312,7 +340,7 @@ export default function ResultsPage() {
     let buffer: string[] = [];
 
     const pushSection = () => {
-      const content = buffer.join("\n").trim();
+      const content = sanitizeReportContent(buffer.join("\n"));
       if (content) {
         sections.push({
           key: `${sections.length}-${currentTitle}`,
@@ -370,44 +398,213 @@ export default function ResultsPage() {
     },
   ];
 
+  const generatedDate = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date()),
+    []
+  );
+
+  const pdfNewsArticles = useMemo(() => newsArticles.slice(0, 5), [newsArticles]);
+
+  const pdfAnalysisSections = useMemo(() => {
+    const orderedTitles = [
+      "Executive Summary",
+      "Trend Position",
+      "Momentum Signals",
+      "Volatility & Risk Context",
+      "Fundamentals Snapshot",
+      "Final Interpretation",
+    ];
+
+    const sectionMap = new Map(reportSections.map((section) => [section.title, section]));
+    const ordered = orderedTitles
+      .map((title) => sectionMap.get(title))
+      .filter((section): section is ReportSection => Boolean(section));
+
+    return ordered.length > 0 ? ordered : reportSections;
+  }, [reportSections]);
+
+  const pdfFormattedSections = useMemo(
+    () =>
+      pdfAnalysisSections.map((section) => ({
+        ...section,
+        pdfContent: stripMarkdownForPdf(section.content),
+      })),
+    [pdfAnalysisSections]
+  );
+
+  const chartChangePercent = useMemo(() => {
+    if (chartData.length < 2) return null;
+    const firstClose = chartData[0].close;
+    const lastClose = chartData[chartData.length - 1].close;
+    if (!Number.isFinite(firstClose) || firstClose === 0 || !Number.isFinite(lastClose)) return null;
+    return ((lastClose - firstClose) / firstClose) * 100;
+  }, [chartData]);
+
+  const reportOutlookLine = useMemo(() => {
+    const riskTone = riskScore >= 70 ? "elevated" : riskScore >= 40 ? "moderate" : "contained";
+    const confidenceTone = confidenceScore >= 70 ? "high" : confidenceScore >= 40 ? "balanced" : "limited";
+    return `${symbol ?? "This stock"} shows a ${sentiment.toLowerCase()} directional bias with ${riskTone} risk and ${confidenceTone} confidence.`;
+  }, [confidenceScore, riskScore, sentiment, symbol]);
+
   const handleDownloadPdf = async () => {
-    if (!reportRef.current || !symbol) return;
+    if (!symbol) return;
 
     try {
       setIsExporting(true);
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "a4",
+        compress: true,
       });
 
-      const imageData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgProps = pdf.getImageProperties(imageData);
-      const margin = 8;
-      const imgWidth = pdfWidth - margin * 2;
-      const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-      const totalPages = Math.ceil(imgHeight / pdfHeight);
-      const generatedDate = new Date().toLocaleDateString();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 36;
+      const topY = 36;
+      const footerY = pageHeight - 22;
+      const footerRuleY = pageHeight - 34;
+      const contentBottomY = pageHeight - 42;
+      const contentWidth = pageWidth - marginX * 2;
+      let cursorY = topY;
 
-      for (let page = 1; page <= totalPages; page++) {
-        if (page > 1) {
+      const ensureSpace = (requiredHeight: number) => {
+        if (cursorY + requiredHeight > contentBottomY) {
           pdf.addPage();
+          cursorY = topY;
         }
+      };
 
-        const positionY = -(page - 1) * pdfHeight + margin;
-        pdf.addImage(imageData, "PNG", margin, positionY, imgWidth, imgHeight);
+      const writeWrapped = (text: string, fontSize = 11, style: "normal" | "bold" = "normal", lineHeight = 14) => {
+        if (!text.trim()) return;
+        pdf.setTextColor(30, 41, 59);
+        pdf.setFont("helvetica", style);
+        pdf.setFontSize(fontSize);
+        const lines = pdf.splitTextToSize(text, contentWidth) as string[];
+        for (const line of lines) {
+          ensureSpace(lineHeight);
+          pdf.text(line, marginX, cursorY);
+          cursorY += lineHeight;
+        }
+      };
 
+      const addGap = (height = 8) => {
+        ensureSpace(height);
+        cursorY += height;
+      };
+
+      const writeSectionTitle = (title: string) => {
+        ensureSpace(26);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(14);
+        pdf.setTextColor(15, 23, 42);
+        pdf.text(title, marginX, cursorY);
+        cursorY += 10;
         pdf.setDrawColor(226, 232, 240);
-        pdf.line(margin, pdfHeight - 14, pdfWidth - margin, pdfHeight - 14);
+        pdf.line(marginX, cursorY, pageWidth - marginX, cursorY);
+        cursorY += 12;
+      };
+
+      pdf.setTextColor(37, 99, 235);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(26);
+      pdf.text("StockAssist", marginX, cursorY);
+      cursorY += 22;
+
+      writeWrapped("AI-Powered Stock Intelligence Report", 13, "normal", 16);
+      addGap(2);
+      writeWrapped(`Symbol: ${symbol}`, 11, "bold", 14);
+      writeWrapped(`Generated On: ${generatedDate}`, 10, "normal", 13);
+      writeWrapped(`Market Outlook: ${sentiment}`, 10, "normal", 13);
+      addGap(8);
+      writeWrapped(reportOutlookLine, 10, "normal", 13);
+
+      addGap(10);
+      writeSectionTitle("Section 1 — Investment Snapshot");
+      const snapshotLines = [
+        `Current Price: ${latestPrice !== null ? `Rs. ${latestPrice.toFixed(2)}` : "N/A"}`,
+        `RSI: ${rsi !== null ? rsi.toFixed(2) : "N/A"}`,
+        `MACD: ${macd !== null ? macd.toFixed(2) : "N/A"}`,
+        `Trend: ${trendLabel}`,
+        `Risk Score: ${riskScore}%`,
+        `Confidence Score: ${confidenceScore}%`,
+        `Buy vs Sell: ${probability.buy}% / ${probability.sell}%`,
+        `1M Price Move: ${chartChangePercent !== null ? `${chartChangePercent >= 0 ? "+" : ""}${chartChangePercent.toFixed(2)}%` : "N/A"}`,
+      ];
+      for (const line of snapshotLines) {
+        writeWrapped(`• ${line}`, 11, "normal", 14);
+      }
+
+      addGap(8);
+      writeSectionTitle("Section 2 — AI Analysis");
+      if (pdfFormattedSections.length === 0) {
+        writeWrapped("No analysis sections available in this report.", 11, "normal", 14);
+      } else {
+        for (const section of pdfFormattedSections) {
+          writeWrapped(section.title, 12, "bold", 16);
+          const blocks = section.pdfContent
+            .split(/\n{2,}/)
+            .map((block) => block.trim())
+            .filter((block) => block.length > 0);
+
+          if (blocks.length === 0) {
+            writeWrapped("Not enough signal clarity to provide this section.", 11, "normal", 14);
+          } else {
+            for (const block of blocks) {
+              writeWrapped(block, 10.5, "normal", 14);
+              addGap(2);
+            }
+          }
+          addGap(4);
+        }
+      }
+
+      writeSectionTitle("Section 3 — Actionable Highlights");
+      writeWrapped(`• Directional Bias: ${sentiment} (${probability.buy}% buy probability)`, 11, "normal", 14);
+      writeWrapped(`• Risk Stance: ${riskLabel} risk (${riskScore}/100)`, 11, "normal", 14);
+      writeWrapped(`• Momentum Read: RSI ${rsi !== null ? rsi.toFixed(2) : "N/A"}, MACD ${macd !== null ? macd.toFixed(2) : "N/A"}`, 11, "normal", 14);
+      writeWrapped(`• Trend Context: ${trendLabel} relative to SMA 50`, 11, "normal", 14);
+
+      writeSectionTitle("Section 4 — Latest News");
+      if (pdfNewsArticles.length === 0) {
+        writeWrapped("No recent market news found for this symbol.", 11, "normal", 14);
+      } else {
+        pdfNewsArticles.forEach((article, index) => {
+          writeWrapped(`${index + 1}. ${article.title ?? "Untitled article"}`, 11, "bold", 14);
+          writeWrapped(`${article.source ?? "Unknown source"}${article.published_at ? ` — ${new Date(article.published_at).toLocaleDateString("en-IN", { timeZone: "UTC" })}` : ""}`, 10, "normal", 13);
+          if (article.description) writeWrapped(article.description, 10, "normal", 13);
+          if (article.url) writeWrapped(article.url, 9, "normal", 12);
+          addGap(5);
+        });
+      }
+
+      writeSectionTitle("Disclosure");
+      writeWrapped("This report is generated from model-based analysis of market and company indicators and is intended for informational use only.", 10, "normal", 13);
+      writeWrapped("It does not constitute financial advice, investment recommendation, or a guarantee of future performance.", 10, "normal", 13);
+
+      const pageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page++) {
+        pdf.setPage(page);
+        pdf.setDrawColor(226, 232, 240);
+        pdf.line(marginX, footerRuleY, pageWidth - marginX, footerRuleY);
         pdf.setTextColor(71, 85, 105);
+        pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8);
-        pdf.text("Generated by StockAssist", margin, pdfHeight - 9);
-        pdf.text("For informational purposes only. Not investment advice.", margin, pdfHeight - 5);
-        pdf.text(generatedDate, pdfWidth / 2 - 10, pdfHeight - 9);
-        pdf.text(`Page ${page} of ${totalPages}`, pdfWidth - margin - 24, pdfHeight - 9);
+        pdf.text("Generated by StockAssist", marginX, footerY - 4);
+        pdf.text("For informational purposes only. Not investment advice.", marginX, footerY + 7);
+        const dateTextWidth = pdf.getTextWidth(generatedDate);
+        pdf.text(generatedDate, pageWidth / 2 - dateTextWidth / 2, footerY - 4);
+        const pageLabel = `Page ${page} of ${pageCount}`;
+        const pageLabelWidth = pdf.getTextWidth(pageLabel);
+        pdf.text(pageLabel, pageWidth - marginX - pageLabelWidth, footerY - 4);
       }
 
       pdf.save(`stockassist-report-${symbol}.pdf`);
@@ -424,6 +621,7 @@ export default function ResultsPage() {
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.22),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(99,102,241,0.18),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(14,165,233,0.12),transparent_45%)]" />
 
+      <div className="dashboard-ui">
       <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-slate-950/60 backdrop-blur-md">
         <div className="container flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
@@ -472,6 +670,12 @@ export default function ResultsPage() {
             )}
           </div>
 
+          <div className="rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-center shadow-sm">
+            <p className="animate-pulse text-sm font-semibold tracking-wide text-rose-100">
+              Disclaimer: This analysis is for informational purposes only and is not financial or investment advice.
+            </p>
+          </div>
+
           {loading ? (
             <div className="rounded-3xl border border-white/10 bg-white/5 p-12 text-center shadow-2xl backdrop-blur-sm">
               <div className="mx-auto h-16 w-16 rounded-full border-4 border-blue-300/40 border-t-blue-400 animate-spin" />
@@ -489,7 +693,7 @@ export default function ResultsPage() {
               </Button>
             </div>
           ) : (
-            <div id="report-content" ref={reportRef} className="space-y-8">
+            <div id="report-content" className="space-y-8">
               <Card className="rounded-3xl border border-white/20 bg-white/10 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
                 <CardHeader className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -767,6 +971,7 @@ export default function ResultsPage() {
                             td: ({ children }) => <td className="px-6 py-4 text-sm text-slate-100">{children}</td>,
                             tr: ({ children }) => <tr className="bg-transparent even:bg-white/5">{children}</tr>,
                             strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                            sup: ({ children }) => <span>{children}</span>,
                           }}
                         >
                           {section.content}
@@ -777,7 +982,7 @@ export default function ResultsPage() {
                 ))}
               </div>
 
-              <Card className="rounded-2xl border border-amber-300/30 bg-amber-100/90 text-slate-800 shadow-sm">
+              {/* <Card className="rounded-2xl border border-amber-300/30 bg-amber-100/90 text-slate-800 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-2">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
@@ -787,7 +992,7 @@ export default function ResultsPage() {
                     </p>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
             </div>
           )}
         </div>
@@ -798,6 +1003,7 @@ export default function ResultsPage() {
           <p>&copy; {new Date().getFullYear()} StockAssist. All rights reserved.</p>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
