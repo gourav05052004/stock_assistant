@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  context: { params: { ticker: string } }
+  context: { params: Promise<{ ticker: string }> }
 ) {
-  // Await the params object before accessing its properties
   const params = await context.params;
-  const ticker = params.ticker; // Now it's safe to access
+  const ticker = params.ticker;
 
   if (!ticker) {
     return NextResponse.json(
