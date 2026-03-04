@@ -647,9 +647,20 @@ def get_fast_info_value(ticker: yf.Ticker, key: str) -> float | None:
 
 
 def build_fundamentals(ticker: yf.Ticker) -> dict[str, float | None]:
-    income_stmt = ticker.income_stmt
-    balance_sheet = ticker.balance_sheet
-    cashflow = ticker.cashflow
+    try:
+        income_stmt = ticker.income_stmt
+    except Exception:
+        income_stmt = pd.DataFrame()
+
+    try:
+        balance_sheet = ticker.balance_sheet
+    except Exception:
+        balance_sheet = pd.DataFrame()
+
+    try:
+        cashflow = ticker.cashflow
+    except Exception:
+        cashflow = pd.DataFrame()
 
     revenue = get_statement_metric(income_stmt, ["Total Revenue", "Revenue"])
     net_income = get_statement_metric(income_stmt, ["Net Income", "Net Income Common Stockholders"])
@@ -667,7 +678,10 @@ def build_fundamentals(ticker: yf.Ticker) -> dict[str, float | None]:
 
     # Fallback to ticker.info only if statement-based/fast_info values are unavailable
     if any(value is None for value in [revenue, net_income, total_assets, total_liabilities, free_cash_flow, profit_margin, debt_ratio, free_cash_flow_margin, market_cap]):
-        info = ticker.info
+        try:
+            info = ticker.info
+        except Exception:
+            info = {}
         revenue = revenue if revenue is not None else to_float(info.get("totalRevenue"))
         net_income = net_income if net_income is not None else to_float(info.get("netIncomeToCommon"))
         total_assets = total_assets if total_assets is not None else to_float(info.get("totalAssets"))
@@ -692,7 +706,10 @@ def build_fundamentals(ticker: yf.Ticker) -> dict[str, float | None]:
         pb_ratio = to_float(info.get("priceToBook"))
     else:
         # Still collect valuation metrics if available from fallback source
-        info = ticker.info
+        try:
+            info = ticker.info
+        except Exception:
+            info = {}
         pe_ratio = to_float(info.get("trailingPE"))
         pb_ratio = to_float(info.get("priceToBook"))
 
@@ -958,7 +975,10 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
         bullish_trend = safe_bool(sma_50 is not None and sma_200 is not None and sma_50 > sma_200)
 
         # Multi-timeframe validation
-        higher_tf_history = ticker.history(period="6mo", interval="1d")
+        try:
+            higher_tf_history = await fetch_history_with_retries(ticker, period="6mo", interval="1d")
+        except Exception:
+            higher_tf_history = pd.DataFrame()
         higher_tf_sma_50 = get_last_series_value(ta.sma(higher_tf_history["Close"], length=50)) if not higher_tf_history.empty else None
         higher_tf_sma_200 = get_last_series_value(ta.sma(higher_tf_history["Close"], length=200)) if not higher_tf_history.empty else None
         short_term_bullish = safe_bool(sma_50 is not None and latest_price > sma_50)
