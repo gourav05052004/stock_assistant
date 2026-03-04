@@ -438,6 +438,28 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
         relevance_terms = {base_ticker.lower(), normalized_ticker.lower(), normalized_ticker.replace(".", "").lower()}
         relevance_terms.update(company_tokens)
 
+        def headline_mentions_stock(headline: str) -> bool:
+            title_text = headline.lower().strip()
+            if not title_text:
+                return False
+
+            company_phrase = company_name_normalized.lower().strip()
+            if company_phrase and company_phrase in title_text:
+                return True
+
+            if normalized_ticker.lower() in title_text:
+                return True
+
+            if base_symbol_pattern and base_symbol_pattern.search(title_text):
+                return True
+
+            token_hits = 0
+            for token in company_tokens:
+                if token in title_text:
+                    token_hits += 1
+
+            return token_hits >= 2 if len(company_tokens) >= 2 else token_hits >= 1
+
         def is_relevant_article(article: dict[str, Any]) -> bool:
             title = str(article.get("title") or "")
             description = str(article.get("description") or "")
@@ -447,6 +469,9 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
             company_phrase = company_name_normalized.lower().strip()
 
             if any(keyword in source_name.lower() for keyword in blocked_source_keywords):
+                return False
+
+            if not headline_mentions_stock(title):
                 return False
 
             has_finance_context = any(keyword in combined_text for keyword in finance_context_keywords)
@@ -517,9 +542,6 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
                     if not isinstance(article, dict):
                         continue
 
-                    if not is_relevant_article(article):
-                        continue
-
                     article_url = article.get("url")
                     article_title = str(article.get("title") or "").strip().lower()
                     if isinstance(article_url, str) and article_url in seen_urls:
@@ -535,6 +557,10 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
                         "published_at": article.get("publishedAt"),
                         "description": article.get("description"),
                     }
+
+                    if not is_relevant_article(article):
+                        continue
+
                     collected_articles.append(formatted)
                     if isinstance(article_url, str) and article_url:
                         seen_urls.add(article_url)
@@ -546,12 +572,67 @@ async def fetch_stock_news(ticker: str) -> list[dict]:
 
         if not collected_articles:
             logger.info("No relevant NewsAPI articles found for %s using terms %s", normalized_ticker, sorted(relevance_terms))
+
+            try:
+                yahoo_news = yf.Ticker(normalized_ticker).news
+                if isinstance(yahoo_news, list) and yahoo_news:
+                    mapped_news: list[dict] = []
+                    for article in yahoo_news[:8]:
+                        if not isinstance(article, dict):
+                            continue
+
+                        mapped_news.append(
+                            {
+                                "title": article.get("title") or article.get("content", {}).get("title"),
+                                "source": article.get("publisher") or article.get("provider", {}).get("displayName"),
+                                "url": article.get("link") or article.get("canonicalUrl", {}).get("url"),
+                                "published_at": datetime.fromtimestamp(article.get("providerPublishTime", 0), tz=UTC).isoformat()
+                                if article.get("providerPublishTime")
+                                else None,
+                                "description": article.get("summary") or article.get("content", {}).get("summary"),
+                            }
+                        )
+
+                    mapped_news = [item for item in mapped_news if item.get("title") and headline_mentions_stock(str(item.get("title")))]
+                    if mapped_news:
+                        return mapped_news[:5]
+            except Exception as yahoo_news_error:
+                logger.warning("Yahoo news fallback failed for %s: %s", normalized_ticker, yahoo_news_error)
+
             return []
 
         collected_articles.sort(key=lambda item: item.get("published_at") or "", reverse=True)
         return collected_articles[:5]
     except Exception as news_error:
         logger.exception("News API fetch failed for %s: %s", ticker, news_error)
+
+        try:
+            normalized_ticker = ticker.strip().upper()
+            yahoo_news = yf.Ticker(normalized_ticker).news
+            if isinstance(yahoo_news, list) and yahoo_news:
+                mapped_news: list[dict] = []
+                for article in yahoo_news[:8]:
+                    if not isinstance(article, dict):
+                        continue
+
+                    mapped_news.append(
+                        {
+                            "title": article.get("title") or article.get("content", {}).get("title"),
+                            "source": article.get("publisher") or article.get("provider", {}).get("displayName"),
+                            "url": article.get("link") or article.get("canonicalUrl", {}).get("url"),
+                            "published_at": datetime.fromtimestamp(article.get("providerPublishTime", 0), tz=UTC).isoformat()
+                            if article.get("providerPublishTime")
+                            else None,
+                            "description": article.get("summary") or article.get("content", {}).get("summary"),
+                        }
+                    )
+
+                mapped_news = [item for item in mapped_news if item.get("title") and headline_mentions_stock(str(item.get("title")))]
+                if mapped_news:
+                    return mapped_news[:5]
+        except Exception:
+            pass
+
         return []
 
 

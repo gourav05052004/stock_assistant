@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import {
   ArrowLeft,
@@ -127,39 +128,27 @@ interface ChartPoint {
   close: number;
 }
 
-const CHART_TIMEFRAMES = ["1W", "1M", "6M", "1Y"] as const;
+const CHART_TIMEFRAMES = ["1W", "6M", "1Y"] as const;
 type ChartTimeframe = (typeof CHART_TIMEFRAMES)[number];
 
 const CHART_RANGE_MAP: Record<ChartTimeframe, string> = {
   "1W": "1w",
-  "1M": "1m",
   "6M": "6m",
   "1Y": "1y",
 };
 
 const inFlightStockRequests = new Map<string, Promise<StockAnalysisResponse>>();
 
-function stripMarkdownForPdf(content: string): string {
-  return content
-    .replace(/\r/g, "")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[(.*?)\]\((.*?)\)/g, "$1 ($2)")
-    .replace(/^\s*[-*]\s+/gm, "• ")
-    .replace(/^\s*\d+\.\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function sanitizeReportContent(content: string): string {
   return content
     .replace(/\[\^\d+\]/g, "")
     .replace(/^\s*\[\^\d+\]:.*$/gm, "")
     .replace(/^\s*Not enough signal clarity to provide this section\.\s*$/gm, "")
+    .replace(/^#{1,6}\s+/gm, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
     .replace(/(^|\s)_(.+?)_(?=\s|$)/g, "$1$2")
     .replace(/(^|\s)\*(.+?)\*(?=\s|$)/g, "$1$2")
     .replace(/`([^`]+)`/g, "$1")
@@ -205,7 +194,7 @@ export default function ResultsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [chartLoading, setChartLoading] = useState(false);
-  const [activeTimeframe, setActiveTimeframe] = useState<ChartTimeframe>("1M");
+  const [activeTimeframe, setActiveTimeframe] = useState<ChartTimeframe>("1W");
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
 
   useEffect(() => {
@@ -254,7 +243,7 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!symbol) return;
-    if (activeTimeframe === "1M" && chartData.length > 0) return;
+    if (activeTimeframe === "1Y" && chartData.length > 0) return;
 
     const controller = new AbortController();
 
@@ -409,60 +398,6 @@ export default function ResultsPage() {
     },
   ];
 
-  const generatedDate = useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-IN", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        timeZone: "UTC",
-      }).format(new Date()),
-    []
-  );
-
-  const pdfNewsArticles = useMemo(() => newsArticles.slice(0, 5), [newsArticles]);
-
-  const pdfAnalysisSections = useMemo(() => {
-    const orderedTitles = [
-      "Executive Summary",
-      "Trend Position",
-      "Momentum Signals",
-      "Volatility & Risk Context",
-      "Fundamentals Snapshot",
-      "Final Interpretation",
-    ];
-
-    const sectionMap = new Map(reportSections.map((section) => [section.title, section]));
-    const ordered = orderedTitles
-      .map((title) => sectionMap.get(title))
-      .filter((section): section is ReportSection => Boolean(section));
-
-    return ordered.length > 0 ? ordered : reportSections;
-  }, [reportSections]);
-
-  const pdfFormattedSections = useMemo(
-    () =>
-      pdfAnalysisSections.map((section) => ({
-        ...section,
-        pdfContent: stripMarkdownForPdf(section.content),
-      })),
-    [pdfAnalysisSections]
-  );
-
-  const chartChangePercent = useMemo(() => {
-    if (chartData.length < 2) return null;
-    const firstClose = chartData[0].close;
-    const lastClose = chartData[chartData.length - 1].close;
-    if (!Number.isFinite(firstClose) || firstClose === 0 || !Number.isFinite(lastClose)) return null;
-    return ((lastClose - firstClose) / firstClose) * 100;
-  }, [chartData]);
-
-  const reportOutlookLine = useMemo(() => {
-    const riskTone = riskScore >= 70 ? "elevated" : riskScore >= 40 ? "moderate" : "contained";
-    const confidenceTone = confidenceScore >= 70 ? "high" : confidenceScore >= 40 ? "balanced" : "limited";
-    return `${symbol ?? "This stock"} shows a ${sentiment.toLowerCase()} directional bias with ${riskTone} risk and ${confidenceTone} confidence.`;
-  }, [confidenceScore, riskScore, sentiment, symbol]);
-
   const handleDownloadPdf = async () => {
     if (!symbol) return;
 
@@ -470,6 +405,37 @@ export default function ResultsPage() {
       setIsExporting(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
+      const exportNode = document.getElementById("report-export-content");
+      if (!exportNode) {
+        throw new Error("Report export content not found.");
+      }
+
+      const clonedNode = exportNode.cloneNode(true) as HTMLElement;
+
+      const captureHost = document.createElement("div");
+      const captureWidth = 1280;
+      captureHost.style.position = "fixed";
+      captureHost.style.left = "-100000px";
+      captureHost.style.top = "0";
+      captureHost.style.width = `${captureWidth}px`;
+      captureHost.style.padding = "24px";
+      captureHost.style.background = "linear-gradient(to bottom, #020617, #172554, #312e81)";
+      captureHost.style.zIndex = "-1";
+      clonedNode.style.width = "100%";
+      captureHost.appendChild(clonedNode);
+      document.body.appendChild(captureHost);
+
+      const canvas = await html2canvas(captureHost, {
+        scale: 2,
+        backgroundColor: "#020617",
+        useCORS: true,
+        logging: false,
+        windowWidth: captureWidth,
+      });
+
+      document.body.removeChild(captureHost);
+
+      const imgData = canvas.toDataURL("image/png", 1.0);
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "pt",
@@ -479,201 +445,28 @@ export default function ResultsPage() {
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const marginX = 36;
-      const topY = 36;
-      const footerY = pageHeight - 22;
-      const footerRuleY = pageHeight - 34;
-      const contentBottomY = pageHeight - 42;
-      const contentWidth = pageWidth - marginX * 2;
-      let cursorY = topY;
+      const imageWidth = pageWidth;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      const pageBackground: [number, number, number] = [2, 6, 23];
 
-      const ensureSpace = (requiredHeight: number) => {
-        if (cursorY + requiredHeight > contentBottomY) {
-          pdf.addPage();
-          cursorY = topY;
-        }
+      const paintPageBackground = () => {
+        pdf.setFillColor(pageBackground[0], pageBackground[1], pageBackground[2]);
+        pdf.rect(0, 0, pageWidth, pageHeight, "F");
       };
 
-      const writeWrapped = (
-        text: string,
-        fontSize = 11,
-        style: "normal" | "bold" = "normal",
-        lineHeight = 14,
-        color: [number, number, number] = [30, 41, 59]
-      ) => {
-        if (!text.trim()) return;
-        pdf.setTextColor(color[0], color[1], color[2]);
-        pdf.setFont("helvetica", style);
-        pdf.setFontSize(fontSize);
-        const lines = pdf.splitTextToSize(text, contentWidth) as string[];
-        for (const line of lines) {
-          ensureSpace(lineHeight);
-          pdf.text(line, marginX, cursorY);
-          cursorY += lineHeight;
-        }
-      };
+      let heightLeft = imageHeight;
+      let position = 0;
 
-      const addGap = (height = 8) => {
-        ensureSpace(height);
-        cursorY += height;
-      };
+      paintPageBackground();
+      pdf.addImage(imgData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+      heightLeft -= pageHeight;
 
-      const writeSectionTitle = (title: string) => {
-        ensureSpace(34);
-        pdf.setFillColor(239, 246, 255);
-        pdf.roundedRect(marginX - 4, cursorY - 15, contentWidth + 8, 24, 6, 6, "F");
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(14);
-        pdf.setTextColor(30, 64, 175);
-        pdf.text(title, marginX, cursorY);
-        cursorY += 13;
-        pdf.setDrawColor(226, 232, 240);
-        pdf.line(marginX, cursorY, pageWidth - marginX, cursorY);
-        cursorY += 10;
-      };
-
-      ensureSpace(102);
-      const brandCardX = marginX;
-      const brandCardY = cursorY - 6;
-      const brandCardWidth = contentWidth;
-      const brandCardHeight = 64;
-      pdf.setFillColor(2, 6, 23);
-      pdf.roundedRect(brandCardX, brandCardY, brandCardWidth, brandCardHeight, 8, 8, "F");
-
-      const iconX = brandCardX + 14;
-      const iconY = brandCardY + 24;
-      pdf.setDrawColor(56, 189, 248);
-      pdf.setLineWidth(2.2);
-      pdf.line(iconX, iconY + 14, iconX + 10, iconY + 4);
-      pdf.line(iconX + 10, iconY + 4, iconX + 17, iconY + 11);
-      pdf.line(iconX + 17, iconY + 11, iconX + 24, iconY + 1);
-      pdf.line(iconX + 19, iconY + 1, iconX + 24, iconY + 1);
-      pdf.line(iconX + 24, iconY + 1, iconX + 24, iconY + 6);
-
-      pdf.setTextColor(241, 245, 249);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(28);
-      pdf.text("StockAssist", brandCardX + 42, brandCardY + 30);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(12);
-      pdf.setTextColor(148, 163, 184);
-      pdf.text("AI-Powered Stock Intelligence Report", brandCardX + 42, brandCardY + 50);
-      cursorY += 72;
-
-      const infoDescriptionLines = pdf.splitTextToSize(reportOutlookLine, contentWidth - 20) as string[];
-      const infoCardHeight = 74;
-
-      pdf.setFillColor(239, 246, 255);
-      pdf.roundedRect(marginX, cursorY - 4, contentWidth, infoCardHeight, 6, 6, "F");
-      pdf.setTextColor(30, 64, 175);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(11);
-      pdf.text(`Symbol: ${symbol}`, marginX + 10, cursorY + 12);
-      pdf.text(`Generated On: ${generatedDate}`, marginX + 10, cursorY + 30);
-      const outlookText = `Market Outlook: ${sentiment}`;
-      const outlookWidth = pdf.getTextWidth(outlookText);
-      pdf.text(outlookText, pageWidth - marginX - 10 - outlookWidth, cursorY + 12);
-      pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(51, 65, 85);
-      pdf.setFontSize(10);
-      const visibleInfoLines = infoDescriptionLines.slice(0, 2);
-      visibleInfoLines.forEach((line, index) => {
-        pdf.text(line, marginX + 10, cursorY + 48 + index * 12);
-      });
-      cursorY += infoCardHeight + 8;
-
-      ensureSpace(64);
-      pdf.setFillColor(254, 242, 242);
-      pdf.setDrawColor(252, 165, 165);
-      pdf.roundedRect(marginX, cursorY - 4, contentWidth, 52, 6, 6, "FD");
-      pdf.setTextColor(185, 28, 28);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(11);
-      pdf.text("Disclosure", marginX + 10, cursorY + 12);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(9.5);
-      const disclosureLine1 = "This report is generated from model-based analysis and is intended for informational use only.";
-      const disclosureLine2 = "It is not financial advice, investment recommendation, or a guarantee of future performance.";
-      pdf.text(disclosureLine1, marginX + 10, cursorY + 27);
-      pdf.text(disclosureLine2, marginX + 10, cursorY + 40);
-      cursorY += 62;
-
-      addGap(10);
-      writeSectionTitle("Section 1 — Investment Snapshot");
-      const snapshotLines = [
-        `Current Price: ${latestPrice !== null ? `Rs. ${latestPrice.toFixed(2)}` : "N/A"}`,
-        `RSI: ${rsi !== null ? rsi.toFixed(2) : "N/A"}`,
-        `MACD: ${macd !== null ? macd.toFixed(2) : "N/A"}`,
-        `Trend: ${trendLabel}`,
-        `Risk Score: ${riskScore}%`,
-        `Confidence Score: ${confidenceScore}%`,
-        `Buy vs Sell: ${probability.buy}% / ${probability.sell}%`,
-        `1M Price Move: ${chartChangePercent !== null ? `${chartChangePercent >= 0 ? "+" : ""}${chartChangePercent.toFixed(2)}%` : "N/A"}`,
-      ];
-      for (const line of snapshotLines) {
-        writeWrapped(`• ${line}`, 11, "normal", 14);
-      }
-
-      addGap(8);
-      writeSectionTitle("Section 2 — AI Analysis");
-      if (pdfFormattedSections.length === 0) {
-        writeWrapped("No analysis sections available in this report.", 11, "normal", 14);
-      } else {
-        for (const section of pdfFormattedSections) {
-          writeWrapped(section.title, 12, "bold", 16);
-          const blocks = section.pdfContent
-            .split(/\n{2,}/)
-            .map((block) => block.trim())
-            .filter((block) => block.length > 0);
-
-          if (blocks.length === 0) {
-            writeWrapped("Not enough signal clarity to provide this section.", 11, "normal", 14);
-          } else {
-            for (const block of blocks) {
-              writeWrapped(block, 10.5, "normal", 14);
-              addGap(14);
-            }
-          }
-          addGap(8);
-        }
-      }
-
-      writeSectionTitle("Section 3 — Actionable Highlights");
-      writeWrapped(`• Directional Bias: ${sentiment} (${probability.buy}% buy probability)`, 11, "normal", 14);
-      writeWrapped(`• Risk Stance: ${riskLabel} risk (${riskScore}/100)`, 11, "normal", 14);
-      writeWrapped(`• Momentum Read: RSI ${rsi !== null ? rsi.toFixed(2) : "N/A"}, MACD ${macd !== null ? macd.toFixed(2) : "N/A"}`, 11, "normal", 14);
-      writeWrapped(`• Trend Context: ${trendLabel} relative to SMA 50`, 11, "normal", 14);
-
-      writeSectionTitle("Section 4 — Latest News");
-      if (pdfNewsArticles.length === 0) {
-        writeWrapped("No recent market news found for this symbol.", 11, "normal", 14);
-      } else {
-        pdfNewsArticles.forEach((article, index) => {
-          writeWrapped(`${index + 1}. ${article.title ?? "Untitled article"}`, 11, "bold", 14);
-          writeWrapped(`${article.source ?? "Unknown source"}${article.published_at ? ` — ${new Date(article.published_at).toLocaleDateString("en-IN", { timeZone: "UTC" })}` : ""}`, 10, "normal", 13);
-          if (article.description) writeWrapped(article.description, 10, "normal", 13);
-          if (article.url) writeWrapped(article.url, 9.5, "normal", 12, [37, 99, 235]);
-          addGap(5);
-        });
-      }
-
-      const pageCount = pdf.getNumberOfPages();
-      for (let page = 1; page <= pageCount; page++) {
-        pdf.setPage(page);
-        pdf.setDrawColor(226, 232, 240);
-        pdf.line(marginX, footerRuleY, pageWidth - marginX, footerRuleY);
-        pdf.setTextColor(71, 85, 105);
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(8);
-        pdf.text("Generated by StockAssist", marginX, footerY - 4);
-        pdf.setTextColor(239, 68, 68);
-        pdf.text("For informational purposes only. Not investment advice.", marginX, footerY + 7);
-        pdf.setTextColor(71, 85, 105);
-        const dateTextWidth = pdf.getTextWidth(generatedDate);
-        pdf.text(generatedDate, pageWidth / 2 - dateTextWidth / 2, footerY - 4);
-        const pageLabel = `Page ${page} of ${pageCount}`;
-        const pageLabelWidth = pdf.getTextWidth(pageLabel);
-        pdf.text(pageLabel, pageWidth - marginX - pageLabelWidth, footerY - 4);
+      while (heightLeft > 0) {
+        position = heightLeft - imageHeight;
+        pdf.addPage();
+        paintPageBackground();
+        pdf.addImage(imgData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+        heightLeft -= pageHeight;
       }
 
       pdf.save(`stockassist-report-${symbol}.pdf`);
@@ -739,11 +532,12 @@ export default function ResultsPage() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-center shadow-sm">
-            <p className="animate-pulse text-sm font-semibold tracking-wide text-rose-100">
-              Disclaimer: This analysis is for informational purposes only and is not financial or investment advice.
-            </p>
-          </div>
+          <div id="report-export-content" className="space-y-8">
+            <div className="rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-center shadow-sm">
+              <p className="animate-pulse text-sm font-semibold tracking-wide text-rose-100">
+                Disclaimer: This analysis is for informational purposes only and is not financial or investment advice.
+              </p>
+            </div>
 
           {loading ? (
             <div className="rounded-3xl border border-white/10 bg-white/5 p-12 text-center shadow-2xl backdrop-blur-sm">
@@ -902,20 +696,16 @@ export default function ResultsPage() {
                             <Cell fill="#22c55e" />
                             <Cell fill="#ef4444" />
                           </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: "#0f172a",
-                              border: "1px solid rgba(148,163,184,0.3)",
-                              borderRadius: "12px",
-                              color: "#e2e8f0",
-                            }}
-                          />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                         <Target className="h-5 w-5 text-blue-300" />
                         <p className="mt-1 text-xs uppercase tracking-wider text-slate-300">Buy / Sell</p>
-                        <p className="text-lg font-semibold text-emerald-300">{probability.buy}% / {probability.sell}%</p>
+                        <p className="text-lg font-semibold">
+                          <span className="text-emerald-300">{probability.buy}%</span>
+                          <span className="text-slate-300"> / </span>
+                          <span className="text-red-600">{probability.sell}%</span>
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -1067,6 +857,7 @@ export default function ResultsPage() {
               </Card> */}
             </div>
           )}
+          </div>
         </div>
       </main>
 
