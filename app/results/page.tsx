@@ -156,6 +156,12 @@ function sanitizeReportContent(content: string): string {
   return content
     .replace(/\[\^\d+\]/g, "")
     .replace(/^\s*\[\^\d+\]:.*$/gm, "")
+    .replace(/^\s*Not enough signal clarity to provide this section\.\s*$/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/(^|\s)_(.+?)_(?=\s|$)/g, "$1$2")
+    .replace(/(^|\s)\*(.+?)\*(?=\s|$)/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
     .replace(/\$(?=\s*\d)/g, "Rs. ")
     .replace(/₹/g, "Rs. ")
     .replace(/¹/g, "Rs. ")
@@ -483,9 +489,15 @@ export default function ResultsPage() {
         }
       };
 
-      const writeWrapped = (text: string, fontSize = 11, style: "normal" | "bold" = "normal", lineHeight = 14) => {
+      const writeWrapped = (
+        text: string,
+        fontSize = 11,
+        style: "normal" | "bold" = "normal",
+        lineHeight = 14,
+        color: [number, number, number] = [30, 41, 59]
+      ) => {
         if (!text.trim()) return;
-        pdf.setTextColor(30, 41, 59);
+        pdf.setTextColor(color[0], color[1], color[2]);
         pdf.setFont("helvetica", style);
         pdf.setFontSize(fontSize);
         const lines = pdf.splitTextToSize(text, contentWidth) as string[];
@@ -502,30 +514,84 @@ export default function ResultsPage() {
       };
 
       const writeSectionTitle = (title: string) => {
-        ensureSpace(26);
+        ensureSpace(34);
+        pdf.setFillColor(239, 246, 255);
+        pdf.roundedRect(marginX - 4, cursorY - 15, contentWidth + 8, 24, 6, 6, "F");
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(14);
-        pdf.setTextColor(15, 23, 42);
+        pdf.setTextColor(30, 64, 175);
         pdf.text(title, marginX, cursorY);
-        cursorY += 10;
+        cursorY += 13;
         pdf.setDrawColor(226, 232, 240);
         pdf.line(marginX, cursorY, pageWidth - marginX, cursorY);
-        cursorY += 12;
+        cursorY += 10;
       };
 
-      pdf.setTextColor(37, 99, 235);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(26);
-      pdf.text("StockAssist", marginX, cursorY);
-      cursorY += 22;
+      ensureSpace(102);
+      const brandCardX = marginX;
+      const brandCardY = cursorY - 6;
+      const brandCardWidth = contentWidth;
+      const brandCardHeight = 64;
+      pdf.setFillColor(2, 6, 23);
+      pdf.roundedRect(brandCardX, brandCardY, brandCardWidth, brandCardHeight, 8, 8, "F");
 
-      writeWrapped("AI-Powered Stock Intelligence Report", 13, "normal", 16);
-      addGap(2);
-      writeWrapped(`Symbol: ${symbol}`, 11, "bold", 14);
-      writeWrapped(`Generated On: ${generatedDate}`, 10, "normal", 13);
-      writeWrapped(`Market Outlook: ${sentiment}`, 10, "normal", 13);
-      addGap(8);
-      writeWrapped(reportOutlookLine, 10, "normal", 13);
+      const iconX = brandCardX + 14;
+      const iconY = brandCardY + 24;
+      pdf.setDrawColor(56, 189, 248);
+      pdf.setLineWidth(2.2);
+      pdf.line(iconX, iconY + 14, iconX + 10, iconY + 4);
+      pdf.line(iconX + 10, iconY + 4, iconX + 17, iconY + 11);
+      pdf.line(iconX + 17, iconY + 11, iconX + 24, iconY + 1);
+      pdf.line(iconX + 19, iconY + 1, iconX + 24, iconY + 1);
+      pdf.line(iconX + 24, iconY + 1, iconX + 24, iconY + 6);
+
+      pdf.setTextColor(241, 245, 249);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(28);
+      pdf.text("StockAssist", brandCardX + 42, brandCardY + 30);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(12);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text("AI-Powered Stock Intelligence Report", brandCardX + 42, brandCardY + 50);
+      cursorY += 72;
+
+      const infoDescriptionLines = pdf.splitTextToSize(reportOutlookLine, contentWidth - 20) as string[];
+      const infoCardHeight = 74;
+
+      pdf.setFillColor(239, 246, 255);
+      pdf.roundedRect(marginX, cursorY - 4, contentWidth, infoCardHeight, 6, 6, "F");
+      pdf.setTextColor(30, 64, 175);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      pdf.text(`Symbol: ${symbol}`, marginX + 10, cursorY + 12);
+      pdf.text(`Generated On: ${generatedDate}`, marginX + 10, cursorY + 30);
+      const outlookText = `Market Outlook: ${sentiment}`;
+      const outlookWidth = pdf.getTextWidth(outlookText);
+      pdf.text(outlookText, pageWidth - marginX - 10 - outlookWidth, cursorY + 12);
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(51, 65, 85);
+      pdf.setFontSize(10);
+      const visibleInfoLines = infoDescriptionLines.slice(0, 2);
+      visibleInfoLines.forEach((line, index) => {
+        pdf.text(line, marginX + 10, cursorY + 48 + index * 12);
+      });
+      cursorY += infoCardHeight + 8;
+
+      ensureSpace(64);
+      pdf.setFillColor(254, 242, 242);
+      pdf.setDrawColor(252, 165, 165);
+      pdf.roundedRect(marginX, cursorY - 4, contentWidth, 52, 6, 6, "FD");
+      pdf.setTextColor(185, 28, 28);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      pdf.text("Disclosure", marginX + 10, cursorY + 12);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9.5);
+      const disclosureLine1 = "This report is generated from model-based analysis and is intended for informational use only.";
+      const disclosureLine2 = "It is not financial advice, investment recommendation, or a guarantee of future performance.";
+      pdf.text(disclosureLine1, marginX + 10, cursorY + 27);
+      pdf.text(disclosureLine2, marginX + 10, cursorY + 40);
+      cursorY += 62;
 
       addGap(10);
       writeSectionTitle("Section 1 — Investment Snapshot");
@@ -560,10 +626,10 @@ export default function ResultsPage() {
           } else {
             for (const block of blocks) {
               writeWrapped(block, 10.5, "normal", 14);
-              addGap(2);
+              addGap(14);
             }
           }
-          addGap(4);
+          addGap(8);
         }
       }
 
@@ -581,14 +647,10 @@ export default function ResultsPage() {
           writeWrapped(`${index + 1}. ${article.title ?? "Untitled article"}`, 11, "bold", 14);
           writeWrapped(`${article.source ?? "Unknown source"}${article.published_at ? ` — ${new Date(article.published_at).toLocaleDateString("en-IN", { timeZone: "UTC" })}` : ""}`, 10, "normal", 13);
           if (article.description) writeWrapped(article.description, 10, "normal", 13);
-          if (article.url) writeWrapped(article.url, 9, "normal", 12);
+          if (article.url) writeWrapped(article.url, 9.5, "normal", 12, [37, 99, 235]);
           addGap(5);
         });
       }
-
-      writeSectionTitle("Disclosure");
-      writeWrapped("This report is generated from model-based analysis of market and company indicators and is intended for informational use only.", 10, "normal", 13);
-      writeWrapped("It does not constitute financial advice, investment recommendation, or a guarantee of future performance.", 10, "normal", 13);
 
       const pageCount = pdf.getNumberOfPages();
       for (let page = 1; page <= pageCount; page++) {
@@ -954,7 +1016,7 @@ export default function ResultsPage() {
                       <div className="h-px w-full bg-white/15" />
                     </CardHeader>
                     <CardContent className="text-lg leading-relaxed text-slate-100">
-                      <div className="prose prose-invert max-w-none prose-p:text-lg prose-p:leading-relaxed">
+                      <div className="prose prose-invert max-w-none prose-p:mb-6 prose-p:text-lg prose-p:leading-relaxed">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
@@ -971,6 +1033,8 @@ export default function ResultsPage() {
                             td: ({ children }) => <td className="px-6 py-4 text-sm text-slate-100">{children}</td>,
                             tr: ({ children }) => <tr className="bg-transparent even:bg-white/5">{children}</tr>,
                             strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                            em: ({ children }) => <span className="text-slate-100 not-italic">{children}</span>,
+                            code: ({ children }) => <span className="text-slate-100 font-normal">{children}</span>,
                             sup: ({ children }) => <span>{children}</span>,
                           }}
                         >

@@ -321,10 +321,18 @@ def build_section_data_points(symbol: str, indicators: dict[str, Any], scores: d
 def enrich_analysis_sections_with_data(sections: list[dict[str, str]], symbol: str, indicators: dict[str, Any], scores: dict[str, Any]) -> list[dict[str, str]]:
     data_map = build_section_data_points(symbol, indicators, scores)
     enriched_sections: list[dict[str, str]] = []
+    placeholder_text = "Not enough signal clarity to provide this section."
 
     for section in sections:
         title = section.get("title", "")
         content = section.get("content", "").strip()
+        content_lines = [line for line in content.split("\n") if line.strip()]
+
+        if len(content_lines) > 1:
+            non_placeholder_lines = [line for line in content_lines if line.strip() != placeholder_text]
+            if non_placeholder_lines:
+                content = "\n".join(non_placeholder_lines).strip()
+
         points = data_map.get(title, [])
 
         data_block = ""
@@ -336,7 +344,7 @@ def enrich_analysis_sections_with_data(sections: list[dict[str, str]], symbol: s
             {
                 "key": section.get("key", ""),
                 "title": title,
-                "content": combined_content.strip() if combined_content else "Not enough signal clarity to provide this section.",
+                "content": combined_content.strip() if combined_content else placeholder_text,
             }
         )
 
