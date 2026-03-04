@@ -3,10 +3,13 @@ from google import genai  # type: ignore
 import yfinance as yf # type: ignore
 import pandas as pd
 import pandas_ta as ta
+import httpx
+import logging
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 import os
 import json
 import math
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from dotenv import load_dotenv
@@ -16,10 +19,14 @@ load_dotenv()
 
 # Retrieve Gemini API Key
 API_KEY = os.getenv("GEMINI_API_KEY")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 # Validate API Key
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY is missing. Please set it in your .env file.")
+
+if not NEWS_API_KEY:
+    raise ValueError("NEWS_API_KEY is missing in .env file.")
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -35,16 +42,443 @@ app.add_middleware(
 
 # Configure Gemini AI
 client = genai.Client(api_key=API_KEY)
+logger = logging.getLogger(__name__)
 
 # In-memory cache
 analysis_cache: dict[str, dict[str, Any]] = {}
 CACHE_TTL_SECONDS = {
     "1d": 5 * 60,
-    "1w": 15 * 60,
-    "1m": 60 * 60,
-    "6m": 60 * 60,
-    "1y": 6 * 60 * 60,
+    "1w": 5 * 60,
+    "1m": 5 * 60,
+    "6m": 5 * 60,
+    "1y": 5 * 60,
 }
+
+REQUIRED_SECTION_TITLES = [
+    "Executive Summary",
+    "Trend Position",
+    "Momentum Signals",
+    "Volatility & Risk Context",
+    "Fundamentals Snapshot",
+    "Bullish Case vs Bearish Case",
+    "Final Interpretation",
+]
+
+SECTION_KEY_MAP = {
+    "Executive Summary": "executive_summary",
+    "Trend Position": "trend_position",
+    "Momentum Signals": "momentum_signals",
+    "Volatility & Risk Context": "volatility_risk_context",
+    "Fundamentals Snapshot": "fundamentals_snapshot",
+    "Bullish Case vs Bearish Case": "bullish_vs_bearish_case",
+    "Final Interpretation": "final_interpretation",
+}
+
+
+def normalize_section_title(raw_title: str) -> str | None:
+    normalized = raw_title.strip().lower()
+    normalized = re.sub(r"^\d+\.\s*", "", normalized)
+    normalized = re.sub(r"^#+\s*", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+
+    for canonical in REQUIRED_SECTION_TITLES:
+        canonical_lower = canonical.lower()
+        if normalized == canonical_lower or canonical_lower in normalized:
+            return canonical
+
+    return None
+
+
+def normalize_analysis_text(raw_text: str) -> str:
+    if not raw_text:
+        raw_text = ""
+
+    lines = raw_text.replace("\r", "").split("\n")
+    sections: dict[str, list[str]] = {title: [] for title in REQUIRED_SECTION_TITLES}
+    current_section: str | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        is_number_heading = bool(re.match(r"^\d+\.\s+", stripped))
+        is_markdown_heading = bool(re.match(r"^#{1,3}\s+", stripped))
+
+        if is_number_heading or is_markdown_heading:
+            cleaned_title = re.sub(r"^\d+\.\s*", "", stripped)
+            cleaned_title = re.sub(r"^#{1,3}\s*", "", cleaned_title)
+            canonical = normalize_section_title(cleaned_title)
+            if canonical:
+                current_section = canonical
+                continue
+
+        if current_section:
+            sections[current_section].append(line)
+
+    if all(len("\n".join(content).strip()) == 0 for content in sections.values()):
+        sections["Executive Summary"] = [raw_text.strip()] if raw_text.strip() else ["Not enough signal clarity to provide this section."]
+
+    output_parts: list[str] = []
+    for idx, title in enumerate(REQUIRED_SECTION_TITLES, start=1):
+        content = "\n".join(sections[title]).strip()
+        if not content:
+            content = "Not enough signal clarity to provide this section."
+        output_parts.append(f"{idx}. {title}\n{content}")
+
+    return "\n\n".join(output_parts)
+
+
+def build_analysis_sections(normalized_text: str) -> list[dict[str, str]]:
+    sections: list[dict[str, str]] = []
+    lines = normalized_text.replace("\r", "").split("\n")
+    current_title: str | None = None
+    buffer: list[str] = []
+
+    def push_section():
+        nonlocal buffer, current_title
+        if not current_title:
+            return
+
+        key = SECTION_KEY_MAP.get(current_title, re.sub(r"[^a-z0-9]+", "_", current_title.lower()).strip("_"))
+        content = "\n".join(buffer).strip()
+        sections.append(
+            {
+                "key": key,
+                "title": current_title,
+                "content": content,
+            }
+        )
+        buffer = []
+
+    for line in lines:
+        heading_match = re.match(r"^\s*\d+\.\s+(.+?)\s*$", line.strip())
+        if heading_match:
+            push_section()
+            title_candidate = heading_match.group(1).strip()
+            current_title = normalize_section_title(title_candidate) or title_candidate
+            continue
+
+        if current_title:
+            buffer.append(line)
+
+    push_section()
+
+    if not sections:
+        return [
+            {
+                "key": "executive_summary",
+                "title": "Executive Summary",
+                "content": normalized_text.strip() or "Not enough signal clarity to provide this section.",
+            }
+        ]
+
+    return sections
+
+
+def format_metric(value: Any, decimals: int = 2) -> str:
+    numeric_value = to_float(value)
+    if numeric_value is None:
+        return "N/A"
+    return f"{numeric_value:.{decimals}f}"
+
+
+def format_compact_number(value: Any, decimals: int = 2) -> str:
+    numeric_value = to_float(value)
+    if numeric_value is None:
+        return "N/A"
+
+    sign = "-" if numeric_value < 0 else ""
+    absolute_value = abs(numeric_value)
+
+    thresholds = [
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ]
+
+    for threshold, suffix in thresholds:
+        if absolute_value >= threshold:
+            compact_value = absolute_value / threshold
+            return f"{sign}{compact_value:.{decimals}f}{suffix}"
+
+    return f"{numeric_value:.{decimals}f}"
+
+
+def format_currency(value: Any, decimals: int = 2) -> str:
+    numeric_value = to_float(value)
+    if numeric_value is None:
+        return "N/A"
+    return f"₹{numeric_value:.{decimals}f}"
+
+
+def format_currency_compact(value: Any, decimals: int = 2) -> str:
+    compact_value = format_compact_number(value, decimals)
+    if compact_value == "N/A":
+        return compact_value
+    if compact_value.startswith("-"):
+        return f"-₹{compact_value[1:]}"
+    return f"₹{compact_value}"
+
+
+def format_percent(value: Any, decimals: int = 2) -> str:
+    numeric_value = to_float(value)
+    if numeric_value is None:
+        return "N/A"
+    return f"{numeric_value * 100:.{decimals}f}%"
+
+
+def bool_label(value: Any) -> str:
+    if value is True:
+        return "Yes"
+    if value is False:
+        return "No"
+    return "N/A"
+
+
+def build_section_data_points(symbol: str, indicators: dict[str, Any], scores: dict[str, Any]) -> dict[str, list[str]]:
+    price = indicators.get("price", {}) if isinstance(indicators, dict) else {}
+    momentum = indicators.get("momentum", {}) if isinstance(indicators, dict) else {}
+    volatility = indicators.get("volatility", {}) if isinstance(indicators, dict) else {}
+    volume = indicators.get("volume", {}) if isinstance(indicators, dict) else {}
+    fundamentals = indicators.get("fundamentals", {}) if isinstance(indicators, dict) else {}
+
+    macd = momentum.get("macd", {}) if isinstance(momentum, dict) else {}
+    stochastic = momentum.get("stochastic", {}) if isinstance(momentum, dict) else {}
+    bollinger = volatility.get("bollinger", {}) if isinstance(volatility, dict) else {}
+
+    buy_probability = scores.get("buy_probability")
+    sell_probability = scores.get("sell_probability")
+    confidence_score = scores.get("confidence_score")
+    risk_score = scores.get("risk_score")
+    risk_level = scores.get("risk_level", "N/A")
+
+    return {
+        "Executive Summary": [
+            f"Symbol: {symbol}",
+            f"Current Price: {format_currency(price.get('current'))}",
+            f"Buy/Sell Probability: {format_metric(buy_probability, 0)}% / {format_metric(sell_probability, 0)}%",
+            f"Confidence Score: {format_metric(confidence_score, 0)}/100",
+            f"Risk Score: {format_metric(risk_score, 0)}/100 ({risk_level})",
+        ],
+        "Trend Position": [
+            f"Price vs SMA50: {format_currency(price.get('current'))} vs {format_currency(price.get('sma_50'))}",
+            f"Price vs SMA200: {format_currency(price.get('current'))} vs {format_currency(price.get('sma_200'))}",
+            f"EMA20: {format_currency(price.get('ema_20'))}",
+            f"Bullish Trend: {bool_label(price.get('bullish_trend'))}",
+            f"Trend Alignment: {bool_label(price.get('trend_alignment'))}",
+        ],
+        "Momentum Signals": [
+            f"RSI(14): {format_metric(momentum.get('rsi'))}",
+            f"MACD Value/Signal: {format_metric(macd.get('value'))} / {format_metric(macd.get('signal'))}",
+            f"Stochastic K/D: {format_metric(stochastic.get('k'))} / {format_metric(stochastic.get('d'))}",
+            f"Buy/Sell Probability: {format_metric(buy_probability, 0)}% / {format_metric(sell_probability, 0)}%",
+        ],
+        "Volatility & Risk Context": [
+            f"ATR(14): {format_currency(volatility.get('atr'))}",
+            f"Bollinger Upper/Lower: {format_currency(bollinger.get('upper'))} / {format_currency(bollinger.get('lower'))}",
+            f"Volume Above 20D Avg: {bool_label(volume.get('volume_above_avg'))}",
+            f"OBV: {format_compact_number(volume.get('obv'))}",
+            f"OBV Increasing: {bool_label(volume.get('obv_increasing'))}",
+            f"Risk Score: {format_metric(risk_score, 0)}/100 ({risk_level})",
+        ],
+        "Fundamentals Snapshot": [
+            f"Revenue: {format_currency_compact(fundamentals.get('revenue'))}",
+            f"Net Income: {format_currency_compact(fundamentals.get('net_income'))}",
+            f"Profit Margin: {format_percent(fundamentals.get('profit_margin'))}",
+            f"Debt Ratio: {format_percent(fundamentals.get('debt_ratio'))}",
+            f"Free Cash Flow Margin: {format_percent(fundamentals.get('free_cash_flow_margin'))}",
+            f"Market Cap: {format_currency_compact(fundamentals.get('market_cap'))}",
+            f"P/E and P/B: {format_metric(fundamentals.get('pe_ratio'))} / {format_metric(fundamentals.get('pb_ratio'))}",
+        ],
+        "Bullish Case vs Bearish Case": [
+            f"Buy Probability: {format_metric(buy_probability, 0)}%",
+            f"Sell Probability: {format_metric(sell_probability, 0)}%",
+            f"Trend Alignment: {bool_label(price.get('trend_alignment'))}",
+            f"Momentum (MACD > Signal): {bool_label(to_float(macd.get('value')) is not None and to_float(macd.get('signal')) is not None and to_float(macd.get('value')) > to_float(macd.get('signal')))}",
+            f"Volatility Context (ATR): {format_currency(volatility.get('atr'))}",
+        ],
+        "Final Interpretation": [
+            f"Risk Level: {risk_level}",
+            f"Risk/Confidence: {format_metric(risk_score, 0)} / {format_metric(confidence_score, 0)}",
+            f"Directional Split: {format_metric(buy_probability, 0)}% Buy vs {format_metric(sell_probability, 0)}% Sell",
+            f"Current Price: {format_currency(price.get('current'))}",
+        ],
+    }
+
+
+def enrich_analysis_sections_with_data(sections: list[dict[str, str]], symbol: str, indicators: dict[str, Any], scores: dict[str, Any]) -> list[dict[str, str]]:
+    data_map = build_section_data_points(symbol, indicators, scores)
+    enriched_sections: list[dict[str, str]] = []
+
+    for section in sections:
+        title = section.get("title", "")
+        content = section.get("content", "").strip()
+        points = data_map.get(title, [])
+
+        data_block = ""
+        if points:
+            data_block = "**Data Points**\n" + "\n".join(f"- {point}" for point in points)
+
+        combined_content = f"{data_block}\n\n{content}".strip() if content else data_block
+        enriched_sections.append(
+            {
+                "key": section.get("key", ""),
+                "title": title,
+                "content": combined_content.strip() if combined_content else "Not enough signal clarity to provide this section.",
+            }
+        )
+
+    return enriched_sections
+
+
+def render_sections_as_text(sections: list[dict[str, str]]) -> str:
+    text_blocks: list[str] = []
+    for index, section in enumerate(sections, start=1):
+        title = section.get("title", f"Section {index}")
+        content = section.get("content", "").strip()
+        text_blocks.append(f"{index}. {title}\n{content}")
+    return "\n\n".join(text_blocks)
+
+
+async def fetch_stock_news(ticker: str) -> list[dict]:
+    try:
+        normalized_ticker = ticker.strip().upper()
+        base_ticker = normalized_ticker.split(".")[0]
+        company_name = None
+
+        try:
+            ticker_info = yf.Ticker(normalized_ticker).info
+            company_name = ticker_info.get("shortName") or ticker_info.get("longName")
+        except Exception as info_error:
+            logger.warning("Unable to resolve company name for %s: %s", normalized_ticker, info_error)
+
+        company_name_normalized = str(company_name).strip() if company_name else ""
+
+        stop_words = {
+            "limited",
+            "ltd",
+            "inc",
+            "corporation",
+            "corp",
+            "plc",
+            "company",
+            "co",
+            "the",
+            "and",
+            "holdings",
+            "group",
+        }
+
+        company_tokens = [
+            token.lower()
+            for token in re.split(r"[^a-zA-Z0-9]+", company_name_normalized)
+            if token and len(token) >= 3 and token.lower() not in stop_words
+        ]
+
+        allow_base_symbol_word_match = len(base_ticker) <= 5 or any(char.isdigit() for char in base_ticker)
+        base_symbol_pattern = re.compile(rf"\b{re.escape(base_ticker.lower())}\b") if allow_base_symbol_word_match else None
+
+        relevance_terms = {base_ticker.lower(), normalized_ticker.lower(), normalized_ticker.replace(".", "").lower()}
+        relevance_terms.update(company_tokens)
+
+        def is_relevant_article(article: dict[str, Any]) -> bool:
+            title = str(article.get("title") or "")
+            description = str(article.get("description") or "")
+            combined_text = f"{title} {description}".lower()
+            company_phrase = company_name_normalized.lower().strip()
+
+            if normalized_ticker.lower() in combined_text:
+                return True
+
+            if base_symbol_pattern and base_symbol_pattern.search(combined_text):
+                return True
+
+            if company_phrase and company_phrase in combined_text:
+                return True
+
+            matched_tokens = 0
+            for token in company_tokens:
+                if token in combined_text:
+                    matched_tokens += 1
+
+            if company_name_normalized and len(company_tokens) >= 2 and matched_tokens >= 2:
+                return True
+
+            return False
+
+        query_candidates: list[str] = []
+        if company_name_normalized:
+            query_candidates.append(f'"{company_name_normalized}"')
+            query_candidates.append(company_name_normalized)
+        query_candidates.extend([base_ticker, normalized_ticker])
+
+        seen_queries: set[str] = set()
+        seen_urls: set[str] = set()
+        seen_titles: set[str] = set()
+        collected_articles: list[dict] = []
+
+        async with httpx.AsyncClient(timeout=12.0) as http_client:
+            for query_value in query_candidates:
+                cleaned_query = query_value.strip()
+                if not cleaned_query or cleaned_query in seen_queries:
+                    continue
+
+                seen_queries.add(cleaned_query)
+                params = {
+                    "q": cleaned_query,
+                    "sortBy": "publishedAt",
+                    "language": "en",
+                    "searchIn": "title,description",
+                    "pageSize": 20,
+                    "apiKey": NEWS_API_KEY,
+                }
+
+                response = await http_client.get("https://newsapi.org/v2/everything", params=params)
+                response.raise_for_status()
+                payload = response.json()
+                articles = payload.get("articles", []) if isinstance(payload, dict) else []
+                if not isinstance(articles, list):
+                    continue
+
+                for article in articles:
+                    if not isinstance(article, dict):
+                        continue
+
+                    if not is_relevant_article(article):
+                        continue
+
+                    article_url = article.get("url")
+                    article_title = str(article.get("title") or "").strip().lower()
+                    if isinstance(article_url, str) and article_url in seen_urls:
+                        continue
+                    if article_title and article_title in seen_titles:
+                        continue
+
+                    source = article.get("source") if isinstance(article.get("source"), dict) else {}
+                    formatted = {
+                        "title": article.get("title"),
+                        "source": source.get("name"),
+                        "url": article_url,
+                        "published_at": article.get("publishedAt"),
+                        "description": article.get("description"),
+                    }
+                    collected_articles.append(formatted)
+                    if isinstance(article_url, str) and article_url:
+                        seen_urls.add(article_url)
+                    if article_title:
+                        seen_titles.add(article_title)
+
+                if len(collected_articles) >= 5:
+                    break
+
+        if not collected_articles:
+            logger.info("No relevant NewsAPI articles found for %s using terms %s", normalized_ticker, sorted(relevance_terms))
+            return []
+
+        collected_articles.sort(key=lambda item: item.get("published_at") or "", reverse=True)
+        return collected_articles[:5]
+    except Exception as news_error:
+        logger.exception("News API fetch failed for %s: %s", ticker, news_error)
+        return []
 
 
 def get_last_indicator_value(df: pd.DataFrame, preferred_keys: list[str], fallback_prefixes: list[str]) -> float:
@@ -320,6 +754,27 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
         cache_key = get_cache_key(normalized_symbol, range_key)
         cached_analysis = get_cached_value(cache_key)
         if cached_analysis:
+            cached_news = cached_analysis.get("news") if isinstance(cached_analysis, dict) else None
+            if not isinstance(cached_news, list) or len(cached_news) == 0:
+                news_articles = await fetch_stock_news(resolved_symbol)
+                cached_analysis["news"] = news_articles
+                set_cached_value(cache_key, range_key, cached_analysis)
+
+            cached_text = cached_analysis.get("analysis_text") if isinstance(cached_analysis, dict) else None
+            if isinstance(cached_text, str) and cached_text.strip():
+                normalized_cached_text = normalize_analysis_text(cached_text)
+                cached_sections = build_analysis_sections(normalized_cached_text)
+                cached_indicators = cached_analysis.get("indicators") if isinstance(cached_analysis, dict) else {}
+                cached_scores = cached_analysis.get("scores") if isinstance(cached_analysis, dict) else {}
+                enriched_cached_sections = enrich_analysis_sections_with_data(
+                    cached_sections,
+                    resolved_symbol,
+                    cached_indicators if isinstance(cached_indicators, dict) else {},
+                    cached_scores if isinstance(cached_scores, dict) else {},
+                )
+                cached_analysis["analysis_sections"] = enriched_cached_sections
+                cached_analysis["analysis_text"] = render_sections_as_text(enriched_cached_sections)
+                set_cached_value(cache_key, range_key, cached_analysis)
             return cached_analysis
 
         fast_last_price = get_fast_info_value(ticker, "lastPrice")
@@ -515,6 +970,8 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
             "sell_probability": sell_probability,
         }
 
+        news_articles = await fetch_stock_news(resolved_symbol)
+
         # Gemini explanation-only prompt (no numeric generation)
         gemini_payload = {
             "indicators": indicators,
@@ -526,27 +983,31 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
         }
 
         stock_data_prompt = (
-            "You are a senior financial analyst writing a clear, investor-friendly stock summary.\n\n"
-            "Explain the stock using the provided indicators and computed scores.\n\n"
+            "You are a senior financial analyst writing a comprehensive, investor-friendly stock research note.\n\n"
+            "Explain the stock using only the provided indicators and computed scores.\n\n"
             "Rules:\n"
             "- Use simple, clear language.\n"
-            "- Avoid excessive technical jargon.\n"
-            "- Do not restate raw numbers unnecessarily.\n"
-            "- Focus on what the indicators imply.\n"
-            "- Explain contradictions (e.g., low risk but bearish probability).\n"
+            "- Be comprehensive, with detailed reasoning in each section.\n"
+            "- Explain what each indicator implies and why it matters.\n"
+            "- Connect trend, momentum, volatility, and fundamentals into one coherent view.\n"
+            "- Explain contradictions explicitly (e.g., moderate risk but strong bearish bias).\n"
+            "- Include near-term vs medium-term interpretation where possible from the given inputs.\n"
+            "- Mention key upside and downside triggers based strictly on provided data.\n"
+            "- Include practical risk considerations and scenario framing.\n"
             "- Keep tone professional and neutral.\n"
             "- Do not generate new numbers.\n"
             "- Base conclusions strictly on provided data.\n"
-            "- Make it structured but concise.\n"
-            "- End with a short 3–4 sentence executive summary.\n"
-            "- Keep total length under 500 words.\n\n"
+            "- Keep it structured and detailed; avoid being brief.\n"
+            "- In every section, explicitly reference relevant metrics from the input data.\n"
+            "- End with a concise action-oriented conclusion for a cautious retail investor.\n\n"
             "Use this exact structure:\n"
             "1. Executive Summary\n"
             "2. Trend Position\n"
             "3. Momentum Signals\n"
             "4. Volatility & Risk Context\n"
             "5. Fundamentals Snapshot\n"
-            "6. Final Interpretation\n\n"
+            "6. Bullish Case vs Bearish Case\n"
+            "7. Final Interpretation\n\n"
             "Input data:\n"
             f"{json.dumps(gemini_payload, indent=2)}"
         )
@@ -608,37 +1069,54 @@ async def get_stock_analysis(request: Request, ticker_symbol: str, range: str = 
 
             fallback_report = f"""
 1. Executive Summary
-{resolved_symbol} currently has a {directional_bias.lower()} bias with {buy_probability}% buy probability and {sell_probability}% sell probability. The model confidence score is {confidence_score}/100, while risk is rated {risk_level.lower()} at {risk_score}/100. This combination suggests a {"balanced" if directional_bias == "Neutral" else "directional"} setup rather than a one-sided signal.
+{resolved_symbol} currently shows a {directional_bias.lower()} setup, with buy probability at {buy_probability}% versus sell probability at {sell_probability}%. Confidence is {confidence_score}/100 and risk is {risk_level.lower()} at {risk_score}/100, indicating the signal quality is {"strong" if confidence_score >= 70 else "moderate" if confidence_score >= 40 else "limited"}. The overall picture is not one-dimensional: market direction, momentum quality, and risk conditions are interacting rather than pointing to an unambiguous trend.
 
 2. Trend Position
-{trend_position_text}
+{trend_position_text} Relative positioning against moving averages suggests the market currently favors {"trend continuation" if latest_price > (sma_50 if sma_50 is not None else latest_price) else "defensive positioning"}. Trend alignment across time context is {"consistent" if trend_alignment else "mixed"}, which affects conviction and holding-period expectations.
 
 3. Momentum Signals
-{momentum_text}
+{momentum_text} RSI and MACD together indicate whether current moves are supported by improving participation or are likely counter-trend bounces. If RSI remains weak while MACD is still below durable confirmation levels, rebounds may be fragile. If momentum strengthens with improving structure, downside pressure can moderate.
 
 4. Volatility & Risk Context
 {volatility_text}
 {contradiction_note}
+Risk conditions suggest position sizing and stop discipline should be emphasized. Even when directional probability appears favorable, elevated volatility or mixed internals can produce sharp adverse moves.
 
 5. Fundamentals Snapshot
-{fundamentals_text}
+{fundamentals_text} Profitability, leverage, and cash-flow efficiency should be interpreted together; isolated metric strength is less reliable when balance-sheet pressure is high. Valuation context should be treated as secondary to trend and momentum in short-horizon decisions.
 
-6. Final Interpretation
-Overall bias: {directional_bias}. Confidence at {confidence_score}/100 means signal alignment is {"strong" if confidence_score >= 70 else "moderate" if confidence_score >= 40 else "weak"}. The {buy_probability}/{sell_probability} split suggests {"buyers currently have an edge" if buy_probability > sell_probability else "sellers currently have an edge" if sell_probability > buy_probability else "a balanced setup"}. Position sizing should reflect the {risk_level.lower()} risk profile.
+6. Bullish Case vs Bearish Case
+Bullish case: directional momentum stabilizes, selling pressure eases, and trend structure improves enough to support follow-through buying.
+Bearish case: weak momentum persists, resistance zones hold, and risk conditions force further de-rating in sentiment and price action.
+
+7. Final Interpretation
+Overall bias remains {directional_bias}. The {buy_probability}/{sell_probability} split implies {"buyers currently have an edge" if buy_probability > sell_probability else "sellers currently have an edge" if sell_probability > buy_probability else "a balanced setup"}, but conviction should be calibrated to confidence ({confidence_score}/100) and risk ({risk_level}, {risk_score}/100). For cautious execution, prioritize confirmation over prediction and align exposure with current risk regime.
 """
 
             result_payload = {
                 "scores": scores,
                 "indicators": indicators,
-                "analysis_text": fallback_report.strip(),
+                "analysis_text": "",
+                "analysis_sections": [],
+                "news": news_articles,
             }
+            normalized_fallback = normalize_analysis_text(fallback_report.strip())
+            fallback_sections = build_analysis_sections(normalized_fallback)
+            enriched_fallback_sections = enrich_analysis_sections_with_data(fallback_sections, resolved_symbol, indicators, scores)
+            result_payload["analysis_sections"] = enriched_fallback_sections
+            result_payload["analysis_text"] = render_sections_as_text(enriched_fallback_sections)
             set_cached_value(cache_key, range_key, result_payload)
             return result_payload
 
+        normalized_response_text = normalize_analysis_text(response.text)
+        response_sections = build_analysis_sections(normalized_response_text)
+        enriched_response_sections = enrich_analysis_sections_with_data(response_sections, resolved_symbol, indicators, scores)
         result_payload = {
             "scores": scores,
             "indicators": indicators,
-            "analysis_text": response.text,
+            "analysis_text": render_sections_as_text(enriched_response_sections),
+            "analysis_sections": enriched_response_sections,
+            "news": news_articles,
         }
         set_cached_value(cache_key, range_key, result_payload)
         return result_payload

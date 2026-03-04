@@ -44,6 +44,12 @@ import {
 interface StockAnalysisResponse {
   analysis_text?: string;
   stock_analysis?: string;
+  news?: NewsArticle[];
+  analysis_sections?: {
+    key?: string;
+    title?: string;
+    content?: string;
+  }[];
   scores?: {
     risk_score?: number;
     risk_level?: string;
@@ -96,6 +102,14 @@ interface StockAnalysisResponse {
     };
   };
   error?: string;
+}
+
+interface NewsArticle {
+  title?: string;
+  source?: string;
+  url?: string;
+  published_at?: string;
+  description?: string;
 }
 
 interface ReportSection {
@@ -252,6 +266,7 @@ export default function ResultsPage() {
     buy: analysisPayload?.scores?.buy_probability ?? 50,
     sell: analysisPayload?.scores?.sell_probability ?? 50,
   };
+  const newsArticles = analysisPayload?.news ?? [];
 
   const sentiment = useMemo(() => {
     if (probability.buy > probability.sell) return "Bullish";
@@ -278,6 +293,17 @@ export default function ResultsPage() {
   }, [chartData]);
 
   const reportSections = useMemo<ReportSection[]>(() => {
+    const structuredSections = analysisPayload?.analysis_sections;
+    if (Array.isArray(structuredSections) && structuredSections.length > 0) {
+      return structuredSections
+        .map((section, index) => ({
+          key: section.key ?? `${index}-${section.title ?? "section"}`,
+          title: section.title?.trim() || `Section ${index + 1}`,
+          content: section.content?.trim() || "Not enough signal clarity to provide this section.",
+        }))
+        .filter((section) => section.content.length > 0);
+    }
+
     if (!normalizedReport.trim()) return [];
 
     const lines = normalizedReport.split("\n");
@@ -311,7 +337,7 @@ export default function ResultsPage() {
     const wanted = ["price trend", "momentum", "volatility", "fundamental", "risk"];
     const selected = sections.filter((section) => wanted.some((word) => section.title.toLowerCase().includes(word)));
     return selected.length > 0 ? selected : sections;
-  }, [normalizedReport]);
+  }, [analysisPayload?.analysis_sections, normalizedReport]);
 
   const metricCards = [
     {
@@ -675,6 +701,38 @@ export default function ResultsPage() {
                     {rsi !== null && rsi > 70 && <Badge className="bg-emerald-100 text-emerald-700">Overbought</Badge>}
                     {macd !== null && <Badge className="bg-indigo-100 text-indigo-700">Strong Momentum</Badge>}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-3xl border border-white/20 bg-white/10 shadow-xl backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl">
+                <CardHeader>
+                  <CardTitle className="text-xl font-semibold text-white">Market News</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {newsArticles.length > 0 ? (
+                    <div className="space-y-3">
+                      {newsArticles.map((article, index) => (
+                        <a
+                          key={`${article.url ?? article.title ?? "article"}-${index}`}
+                          href={article.url ?? "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-2xl border border-white/15 bg-white/5 p-4 transition-colors hover:border-blue-300/40 hover:bg-white/10"
+                        >
+                          <p className="text-sm font-semibold leading-snug text-white">{article.title ?? "Untitled article"}</p>
+                          <p className="mt-1 text-xs text-slate-300">
+                            {article.source ?? "Unknown source"}
+                            {article.published_at ? ` • ${new Date(article.published_at).toLocaleString()}` : ""}
+                          </p>
+                          {article.description && <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-300">{article.description}</p>}
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-white/15 bg-white/5 p-4 text-sm text-slate-300">
+                      No recent market news found for this symbol.
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
