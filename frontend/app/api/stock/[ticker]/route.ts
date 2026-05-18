@@ -21,34 +21,47 @@ export async function GET(
   const backendBaseUrl = configuredBackendBaseUrl.replace(/\/$/, '');
   const backendUrl = `${backendBaseUrl}/api/stock`;
   const requestedRange = request.nextUrl.searchParams.get('range');
+  const normalizedTicker = ticker.trim().toUpperCase();
+  const hasExchangeSuffix = /\.(NS|BO)$/i.test(normalizedTicker);
+  const tickerCandidates = hasExchangeSuffix
+    ? [normalizedTicker]
+    : [`${normalizedTicker}.NS`, `${normalizedTicker}.BO`];
 
   try {
-    const targetUrl = requestedRange
-      ? `${backendUrl}/${ticker}?range=${encodeURIComponent(requestedRange)}`
-      : `${backendUrl}/${ticker}`;
+    let lastErrorText = '';
+    let lastStatus = 404;
 
-    console.log(`Fetching from: ${targetUrl}`);
+    for (const candidate of tickerCandidates) {
+      const targetUrl = requestedRange
+        ? `${backendUrl}/${encodeURIComponent(candidate)}?range=${encodeURIComponent(requestedRange)}`
+        : `${backendUrl}/${encodeURIComponent(candidate)}`;
 
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store', // Disable caching for real-time data
-    });
+      console.log(`Fetching from: ${targetUrl}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Backend error: ${response.status}`, errorText);
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
 
-      return NextResponse.json(
-        { error: `Failed to fetch data for ${ticker}: ${errorText}` },
-        { status: response.status }
-      );
+      if (response.ok) {
+        const data = await response.json();
+        return NextResponse.json(data);
+      }
+
+      lastStatus = response.status;
+      lastErrorText = await response.text();
+      console.error(`Backend error for ${candidate}: ${response.status}`, lastErrorText);
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(
+      {
+        error: `Failed to fetch data for ${normalizedTicker}. Tried ${tickerCandidates.join(', ')}. ${lastErrorText}`,
+      },
+      { status: lastStatus }
+    );
   } catch (error) {
     console.error('API Route Error:', error instanceof Error ? error.message : String(error));
 

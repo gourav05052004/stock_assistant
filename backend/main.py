@@ -3,7 +3,7 @@ from fastapi import FastAPI, Query, Request # type: ignore
 from google import genai  # type: ignore
 import yfinance as yf # type: ignore
 import pandas as pd
-import pandas_ta as ta
+import pandas_ta as ta 
 import httpx
 import logging
 from fastapi.middleware.cors import CORSMiddleware # type: ignore

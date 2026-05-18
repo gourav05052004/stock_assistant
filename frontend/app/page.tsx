@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { ChevronDown, ChevronUp, Info, Search, TrendingUp } from "lucide-react"
+import { ChevronDown, ChevronUp, Github, Info, Search, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { FormEvent, useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
@@ -169,8 +169,17 @@ export default function Home() {
       </main>
 
       <footer className="relative z-10 border-t border-white/10 py-6">
-        <div className="container text-center text-sm text-slate-400">
-          <p>&copy; {new Date().getFullYear()} StockAssist. All rights reserved.</p>
+        <div className="container flex items-center justify-center gap-3 text-center text-sm text-slate-300">
+          <p>Made by Gourav Kumar Sonu</p>
+          <a
+            href="https://github.com/gourav05052004"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Visit Gourav Kumar Sonu GitHub profile"
+            className="rounded-full border border-white/20 bg-white/10 p-2 text-slate-200 transition hover:border-blue-300/50 hover:bg-blue-500/20 hover:text-white"
+          >
+            <Github className="h-4 w-4" />
+          </a>
         </div>
       </footer>
     </div>

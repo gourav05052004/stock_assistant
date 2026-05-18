@@ -3,6 +3,5 @@ uvicorn
 google-genai
 yfinance
 pandas
-pandas-ta
 httpx
 python-dotenv

@@ -533,9 +533,9 @@ export default function ResultsPage() {
           </div>
 
           <div id="report-export-content" className="space-y-8">
-            <div className="rounded-2xl border border-rose-300/40 bg-rose-500/15 px-4 py-3 text-center shadow-sm">
-              <p className="animate-pulse text-sm font-semibold tracking-wide text-rose-100">
-                Disclaimer: This analysis is for informational purposes only and is not financial or investment advice.
+            <div className="rounded-2xl border border-red-300/60 bg-gradient-to-r from-red-700/45 via-red-600/35 to-rose-700/45 px-4 py-3 text-center shadow-lg shadow-red-900/40 ring-1 ring-red-200/40">
+              <p className="text-sm font-bold tracking-wide text-red-100 md:text-base">
+                IMPORTANT DISCLAIMER: This analysis is for informational purposes only and is not financial or investment advice.
               </p>
             </div>
 
