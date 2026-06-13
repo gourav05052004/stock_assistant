@@ -1,62 +1,133 @@
 import type { Config } from "tailwindcss";
 
 export default {
-    darkMode: ["class"],
-    content: [
+  darkMode: ["class"],
+  content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-  	extend: {
-  		colors: {
-  			background: 'hsl(var(--background))',
-  			foreground: 'hsl(var(--foreground))',
-  			card: {
-  				DEFAULT: 'hsl(var(--card))',
-  				foreground: 'hsl(var(--card-foreground))'
-  			},
-  			popover: {
-  				DEFAULT: 'hsl(var(--popover))',
-  				foreground: 'hsl(var(--popover-foreground))'
-  			},
-  			primary: {
-  				DEFAULT: 'hsl(var(--primary))',
-  				foreground: 'hsl(var(--primary-foreground))'
-  			},
-  			secondary: {
-  				DEFAULT: 'hsl(var(--secondary))',
-  				foreground: 'hsl(var(--secondary-foreground))'
-  			},
-  			muted: {
-  				DEFAULT: 'hsl(var(--muted))',
-  				foreground: 'hsl(var(--muted-foreground))'
-  			},
-  			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
-  			},
-  			destructive: {
-  				DEFAULT: 'hsl(var(--destructive))',
-  				foreground: 'hsl(var(--destructive-foreground))'
-  			},
-  			border: 'hsl(var(--border))',
-  			input: 'hsl(var(--input))',
-  			ring: 'hsl(var(--ring))',
-  			chart: {
-  				'1': 'hsl(var(--chart-1))',
-  				'2': 'hsl(var(--chart-2))',
-  				'3': 'hsl(var(--chart-3))',
-  				'4': 'hsl(var(--chart-4))',
-  				'5': 'hsl(var(--chart-5))'
-  			}
-  		},
-  		borderRadius: {
-  			lg: 'var(--radius)',
-  			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
-  		}
-  	}
+    extend: {
+      colors: {
+        background: "#0f131e",
+        "background-deep": "#020617",
+        foreground: "#dfe2f2",
+        card: {
+          DEFAULT: "#1b1f2b",
+          foreground: "#dfe2f2",
+        },
+        popover: {
+          DEFAULT: "#1b1f2b",
+          foreground: "#dfe2f2",
+        },
+        primary: {
+          DEFAULT: "#e1fdff",
+          foreground: "#00363a",
+          container: "#00f2ff",
+          "on-container": "#006a71",
+          fixed: "#74f5ff",
+          "fixed-dim": "#00dbe7",
+        },
+        secondary: {
+          DEFAULT: "#adc6ff",
+          foreground: "#002e6a",
+          container: "#0566d9",
+          "on-container": "#e6ecff",
+        },
+        tertiary: {
+          DEFAULT: "#fff6e4",
+          foreground: "#3b2f00",
+          container: "#fed83a",
+          "on-container": "#725e00",
+        },
+        muted: {
+          DEFAULT: "#171b27",
+          foreground: "#94A3B8",
+        },
+        accent: {
+          DEFAULT: "#262a36",
+          foreground: "#dfe2f2",
+        },
+        destructive: {
+          DEFAULT: "#ffb4ab",
+          foreground: "#690005",
+        },
+        border: "#3a494b",
+        input: "#3a494b",
+        ring: "#00dbe7",
+        surface: {
+          DEFAULT: "#0f131e",
+          dim: "#0f131e",
+          bright: "#353945",
+          "container-lowest": "#0a0e19",
+          "container-low": "#171b27",
+          container: "#1b1f2b",
+          "container-high": "#262a36",
+          "container-highest": "#313441",
+          variant: "#313441",
+          glass: "rgba(15, 23, 42, 0.6)",
+        },
+        "on-surface": "#dfe2f2",
+        "on-surface-variant": "#b9cacb",
+        "inverse-surface": "#dfe2f2",
+        "inverse-on-surface": "#2c303c",
+        "outline-variant": "#3a494b",
+        "on-primary-fixed-variant": "#004f54",
+        "on-secondary-fixed-variant": "#004395",
+        "on-tertiary-fixed": "#221b00",
+        "on-tertiary-fixed-variant": "#554500",
+        "on-secondary-fixed": "#001a42",
+        "on-primary-fixed": "#002022",
+        "primary-fixed-dim": "#00dbe7",
+        "secondary-fixed": "#d8e2ff",
+        "secondary-fixed-dim": "#adc6ff",
+        "tertiary-fixed": "#ffe173",
+        "tertiary-fixed-dim": "#e8c423",
+        "success-neon": "#10B981",
+        "error-pulse": "#EF4444",
+        "slate-text": "#94A3B8",
+        "on-primary-container": "#006a71",
+      },
+      borderRadius: {
+        DEFAULT: "0.125rem",
+        lg: "0.25rem",
+        xl: "0.5rem",
+        full: "9999px",
+      },
+      spacing: {
+        base: "4px",
+        xs: "0.25rem",
+        sm: "0.5rem",
+        md: "1rem",
+        lg: "1.5rem",
+        xl: "2.5rem",
+        gutter: "24px",
+        "container-max": "1440px",
+      },
+      fontFamily: {
+        "data-label": ["var(--font-jetbrains-mono)"],
+        "headline-lg-mobile": ["var(--font-inter)"],
+        "headline-lg": ["var(--font-inter)"],
+        "body-md": ["var(--font-inter)"],
+        "display-lg": ["var(--font-inter)"],
+        "headline-md": ["var(--font-inter)"],
+        "body-lg": ["var(--font-inter)"],
+        caption: ["var(--font-inter)"],
+        sans: ["var(--font-inter)"],
+        mono: ["var(--font-jetbrains-mono)"],
+      },
+      fontSize: {
+        "data-label": ["14px", { lineHeight: "1.4", letterSpacing: "0.02em", fontWeight: "500" }],
+        "headline-lg-mobile": ["28px", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "600" }],
+        "headline-lg": ["32px", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "600" }],
+        "body-md": ["16px", { lineHeight: "1.5", letterSpacing: "0em", fontWeight: "400" }],
+        "display-lg": ["48px", { lineHeight: "1.1", letterSpacing: "-0.04em", fontWeight: "700" }],
+        "headline-md": ["24px", { lineHeight: "1.3", letterSpacing: "-0.01em", fontWeight: "600" }],
+        "body-lg": ["18px", { lineHeight: "1.6", letterSpacing: "-0.01em", fontWeight: "400" }],
+        caption: ["12px", { lineHeight: "1.4", letterSpacing: "0.01em", fontWeight: "500" }],
+      },
+    },
   },
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   plugins: [require("tailwindcss-animate")],
