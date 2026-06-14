@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Brain, Activity, FileText, ChevronRight, Quote, Globe, BarChart2 } from "lucide-react"
+import { Search, Brain, Activity, FileText, ChevronRight, Quote, Globe, BarChart2, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { FormEvent, useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
@@ -34,19 +34,15 @@ export default function Home() {
 
   return (
     <div className={`min-h-screen bg-[#0f131e] text-slate-200 transition-opacity duration-700 font-sans ${isMounted ? "opacity-100" : "opacity-0"}`}>
-      
+
       {/* Header */}
-      <header className="border-b border-white/5 bg-[#0f131e]/90 backdrop-blur-md sticky top-0 z-50">
-        <div className="container mx-auto max-w-6xl flex h-16 items-center justify-between px-6">
+      <header className="fixed top-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-5xl z-50 rounded-full border border-[#00f2ff]/50 bg-[#0f131e]/80 backdrop-blur-md shadow-[0_0_20px_rgba(0,242,255,0.2)]">
+        <div className="px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 text-[#00f2ff]" strokeWidth={3} />
             <span className="text-xl font-bold tracking-tight text-[#00f2ff]">StockAssist</span>
           </Link>
-          <nav className="hidden md:flex gap-8 text-sm font-medium text-slate-300 h-full items-center">
-            <Link href="#features" className="hover:text-white transition-colors border-b-2 border-[#00f2ff] text-white h-full flex items-center">Features</Link>
-            <Link href="#pricing" className="hover:text-white transition-colors h-full flex items-center">Pricing</Link>
-            <Link href="#about" className="hover:text-white transition-colors h-full flex items-center">About</Link>
-          </nav>
-          <Button className="bg-[#00f2ff] text-[#00363a] hover:bg-[#74f5ff] font-semibold rounded-md px-6 shadow-[0_0_15px_rgba(0,242,255,0.3)] transition-shadow">
+          <Button className="bg-[#00f2ff] text-[#00363a] hover:bg-[#74f5ff] font-semibold rounded-full px-6 shadow-[0_0_15px_rgba(0,242,255,0.3)] transition-shadow">
             Get Started
           </Button>
         </div>
@@ -54,67 +50,34 @@ export default function Home() {
 
       <main>
         {/* Hero Section */}
-        <section className="relative py-20 overflow-hidden">
+        <section className="relative min-h-screen flex items-center pt-32 pb-20 overflow-hidden">
           {/* Subtle gradient glow in background */}
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#00f2ff]/5 rounded-full blur-[100px] pointer-events-none" />
-          
-          <div className="container mx-auto max-w-6xl px-6">
-            <div className="grid lg:grid-cols-2 gap-12 items-center">
-              
+
+          <div className="w-full max-w-[1440px] mx-auto px-6 xl:px-12">
+            <div className="grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
+
               {/* Left Column: Text & Input */}
-              <div className="space-y-8 z-10">
+              <div className="space-y-8 z-10 max-w-2xl">
                 <div className="inline-flex items-center rounded-full border border-[#00f2ff]/30 bg-[#00f2ff]/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-[#00f2ff]">
                   QUANT-DRIVEN INSIGHTS
                 </div>
-                
-                <h1 className="text-5xl md:text-6xl font-bold leading-[1.1] tracking-tight text-white">
-                  Master the Markets with <br/>
+
+                <h1 className="text-6xl md:text-7xl font-bold leading-[1.1] tracking-tight text-white">
+                  Master the Markets with <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00f2ff] to-[#74f5ff]">Quant-Driven AI</span>
                 </h1>
-                
-                <p className="text-lg text-slate-400 max-w-lg leading-relaxed">
+
+                <p className="text-xl text-slate-400 max-w-xl leading-relaxed">
                   Get fast, structured stock intelligence powered by technical indicators and AI-driven interpretation. High-performance financial intelligence at your fingertips.
                 </p>
 
-                <form onSubmit={handleSubmit} className="relative max-w-md">
-                  <div className="relative flex items-center">
-                    <Input
-                      className="h-14 w-full rounded-lg border border-white/10 bg-[#1b1f2b] pl-4 pr-32 text-base text-white shadow-xl focus-visible:ring-1 focus-visible:ring-[#00f2ff] focus-visible:border-[#00f2ff] placeholder:text-slate-500"
-                      placeholder="Enter ticker symbol (e.g. AAPL)"
-                      value={symbol}
-                      onChange={(e) => setSymbol(e.target.value)}
-                      required
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isPending}
-                      className="absolute right-1.5 h-11 px-6 rounded-md bg-[#00f2ff] text-[#00363a] font-bold hover:bg-[#74f5ff] transition-all"
-                    >
-                      {isPending ? "..." : "Analyze"}
-                    </Button>
-                  </div>
-                </form>
 
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-500 text-xs">Popular:</span>
-                  <div className="flex gap-2">
-                    {popularSymbols.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setSymbol(item)}
-                        className="text-[#00f2ff] hover:text-white transition-colors text-xs font-semibold tracking-wide"
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Right Column: Chart Visual */}
-              <div className="relative z-10 lg:ml-auto w-full max-w-lg">
-                <div className="rounded-xl border border-white/5 bg-[#1b1f2b]/80 p-6 shadow-2xl backdrop-blur-sm">
+              <div className="relative z-10 lg:ml-auto w-full max-w-2xl">
+                <div className="rounded-xl border border-white/5 bg-[#1b1f2b]/80 p-8 shadow-2xl backdrop-blur-sm">
                   <div className="flex justify-between items-start mb-8">
                     <div>
                       <h3 className="text-white font-bold text-lg">NIFTY 50</h3>
@@ -123,16 +86,8 @@ export default function Home() {
                         <span className="text-slate-500">Market Open</span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <div className="w-8 h-8 rounded border border-white/10 flex items-center justify-center bg-white/5">
-                        <Activity className="w-4 h-4 text-[#00f2ff]" />
-                      </div>
-                      <div className="w-8 h-8 rounded border border-white/10 flex items-center justify-center bg-white/5">
-                        <BarChart2 className="w-4 h-4 text-slate-400" />
-                      </div>
-                    </div>
                   </div>
-                  
+
                   {/* Mock Line Chart */}
                   <div className="h-48 w-full mt-4 relative">
                     <svg viewBox="0 0 400 150" className="w-full h-full overflow-visible">
@@ -146,7 +101,7 @@ export default function Home() {
                           <feComposite in="SourceGraphic" in2="blur" operator="over" />
                         </filter>
                       </defs>
-                      
+
                       {/* Grid Lines */}
                       <g stroke="rgba(255,255,255,0.05)" strokeWidth="1">
                         {Array.from({ length: 6 }).map((_, i) => (
@@ -156,23 +111,23 @@ export default function Home() {
                           <line key={`v-${i}`} x1={i * 40} y1="0" x2={i * 40} y2="150" />
                         ))}
                       </g>
-                      
+
                       {/* The Line */}
-                      <path 
-                        d="M 0 130 C 50 110, 80 105, 120 90 C 160 75, 190 85, 230 50 C 270 15, 310 30, 350 15 C 370 5, 385 10, 400 10" 
-                        fill="none" 
-                        stroke="url(#lineGrad)" 
-                        strokeWidth="4" 
+                      <path
+                        d="M 0 130 C 50 110, 80 105, 120 90 C 160 75, 190 85, 230 50 C 270 15, 310 30, 350 15 C 370 5, 385 10, 400 10"
+                        fill="none"
+                        stroke="url(#lineGrad)"
+                        strokeWidth="4"
                         strokeLinecap="round"
                         filter="url(#glow)"
                         className="animate-pulse"
                       />
-                      
+
                       {/* End Point Glow */}
                       <circle cx="400" cy="10" r="5" fill="#00f2ff" filter="url(#glow)" />
                     </svg>
                   </div>
-                  
+
                   {/* X Axis labels */}
                   <div className="flex justify-between mt-4 text-[10px] text-slate-500 font-mono">
                     <span>09:30</span>
@@ -208,7 +163,7 @@ export default function Home() {
               <h2 className="text-3xl font-bold text-white mb-4">Engineered for Precision</h2>
               <p className="text-slate-400">Advanced financial intelligence tools designed to give you a definitive edge in the global markets.</p>
             </div>
-            
+
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { icon: Activity, title: "Real-time Data", desc: "Ultra-low latency data feeds from major exchanges globally, processed in milliseconds." },
@@ -234,11 +189,11 @@ export default function Home() {
             <div className="text-center mb-16">
               <h2 className="text-3xl font-bold text-white">Streamlined Execution</h2>
             </div>
-            
+
             <div className="grid md:grid-cols-3 gap-8 relative">
               {/* Connecting Line */}
               <div className="hidden md:block absolute top-12 left-[15%] right-[15%] h-[1px] bg-white/10" />
-              
+
               {[
                 { step: "1", title: "Search", desc: "Input any ticker symbol to activate the AI analysis core." },
                 { step: "2", title: "Analyze", desc: "AI processes indicators and quant data in real-time." },
@@ -268,7 +223,7 @@ export default function Home() {
                 View All Market <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
-            
+
             <div className="grid md:grid-cols-3 gap-6">
               {[
                 { symbol: "TCS", name: "TCS", price: "₹3,842.10", change: "+2.1%", up: true },
@@ -287,11 +242,11 @@ export default function Home() {
                     <div className="w-24 h-12 opacity-80 group-hover:opacity-100 transition-opacity">
                       {/* Simple mock sparkline SVG */}
                       <svg viewBox="0 0 100 30" className="w-full h-full overflow-visible">
-                        <path 
-                          d={stock.up ? "M0,20 Q20,25 40,15 T80,10 T100,5" : "M0,5 Q20,10 40,20 T80,25 T100,28"} 
-                          fill="none" 
-                          stroke={stock.up ? "#00f2ff" : "#f87171"} 
-                          strokeWidth="2" 
+                        <path
+                          d={stock.up ? "M0,20 Q20,25 40,15 T80,10 T100,5" : "M0,5 Q20,10 40,20 T80,25 T100,28"}
+                          fill="none"
+                          stroke={stock.up ? "#00f2ff" : "#f87171"}
+                          strokeWidth="2"
                           strokeLinecap="round"
                         />
                       </svg>
@@ -337,7 +292,7 @@ export default function Home() {
             <div className="bg-gradient-to-br from-[#1b1f2b] to-[#0f131e] border border-white/10 rounded-2xl p-12 md:p-20 text-center relative overflow-hidden shadow-2xl">
               <div className="absolute inset-0 bg-[#00f2ff]/5 blur-3xl rounded-full" />
               <div className="relative z-10 max-w-2xl mx-auto">
-                <h2 className="text-3xl md:text-5xl font-bold text-white mb-6 tracking-tight">Start Your AI-Powered <br/>Journey Today</h2>
+                <h2 className="text-3xl md:text-5xl font-bold text-white mb-6 tracking-tight">Start Your AI-Powered <br />Journey Today</h2>
                 <p className="text-slate-400 mb-10">
                   Join 50,000+ traders leveraging quant-driven intelligence to dominate the global markets. Get started for free.
                 </p>
@@ -371,7 +326,7 @@ export default function Home() {
                 <Activity className="w-5 h-5 text-slate-500 hover:text-white cursor-pointer transition-colors" />
               </div>
             </div>
-            
+
             <div>
               <h4 className="text-white font-bold mb-6 text-sm">Product</h4>
               <ul className="space-y-4 text-sm text-slate-400">
@@ -380,7 +335,7 @@ export default function Home() {
                 <li><Link href="#" className="hover:text-[#00f2ff] transition-colors">API Documentation</Link></li>
               </ul>
             </div>
-            
+
             <div>
               <h4 className="text-white font-bold mb-6 text-sm">Company</h4>
               <ul className="space-y-4 text-sm text-slate-400">
@@ -389,7 +344,7 @@ export default function Home() {
                 <li><Link href="#" className="hover:text-[#00f2ff] transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
-            
+
             <div>
               <h4 className="text-white font-bold mb-6 text-sm">Support</h4>
               <ul className="space-y-4 text-sm text-slate-400">
