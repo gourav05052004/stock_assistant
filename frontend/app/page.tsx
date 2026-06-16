@@ -82,7 +82,7 @@ export default function Home() {
                     <div>
                       <h3 className="text-white font-bold text-lg">NIFTY 50</h3>
                       <div className="flex items-center gap-2 text-sm">
-                        <span className="text-[#00f2ff]">+1.42%</span>
+                        <span className="text-emerald-500 font-bold text-base drop-shadow-[0_0_10px_rgba(16,185,129,0.8)]">▲ 1.42%</span>
                         <span className="text-slate-500">Market Open</span>
                       </div>
                     </div>
